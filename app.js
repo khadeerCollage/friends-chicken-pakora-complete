@@ -1,5 +1,5 @@
 // ============================================================================
-// Friends Chicken Pakora / Riyan Fast Foods — Master Application Script
+// Friends Chicken pokodi / Riyan Fast Foods — Master Application Script
 // Streamlined Daily Stock, Flexible KG/Grams Inputs & Cash Reconciliation System
 // ============================================================================
 
@@ -29,8 +29,8 @@
   // --- Master Menu Items ---
   const DEFAULT_MENU_ITEMS = [
     {
-      id: "item-chicken-pakora",
-      name: "Chicken Pakora",
+      id: "item-chicken-pokodi",
+      name: "Chicken pokodi",
       category: "Chicken",
       unit: "kg",
       price: 480, // Standard rate per kg (100g = ₹60, 250g = ₹120, 1kg = ₹480)
@@ -40,7 +40,7 @@
     },
     {
       id: "item-chicken-liver",
-      name: "Chicken Liver Pakora",
+      name: "Chicken Liver pokodi",
       category: "Chicken",
       unit: "kg",
       price: 400, // Standard rate per kg (100g = ₹50, 250g = ₹100)
@@ -307,7 +307,7 @@
     closings: {},       // Keyed by "YYYY-MM-DD"
     dailyStock: {},     // Keyed by "YYYY-MM-DD" -> array of stock lines
     expenses: [],       // List of expense objects
-    shopName: "Friends Chicken Pakora / Riyan Fast Foods",
+    shopName: "Friends Chicken pokodi / Riyan Fast Foods",
     masterDailyWage: 600,
     activeMenuCategory: "all",
     activeExpenseCategory: "all",
@@ -829,11 +829,11 @@
                     </div>
                   </div>
 
-                  <!-- Multi-Batch Ready Pakora Panel (KG items only) -->
+                  <!-- Multi-Batch Ready pokodi Panel (KG items only) -->
                   <div class="batch-panel" id="batch-panel-${idx}">
                     <div class="batch-panel-header">
                       <div class="batch-panel-title">
-                        📸 Dileep's Ready Pakora Batches (from WhatsApp photos)
+                        📸 Dileep's Ready pokodi Batches (from WhatsApp photos)
                       </div>
                       <span class="batch-total-badge" id="batch-total-${idx}">
                         Total: ${line.added_val > 0 ? line.added_val + ' ' + (line.added_unit || 'kg') : '0 kg'}
@@ -2062,7 +2062,7 @@
 
     // 1. Set 1-Day Realistic Morning Expenses
     S.expenses = [
-      { id: "demo-exp-1", category: "Raw Chicken Meat", amount: 2400, quantity: "12.0 kg", expense_date: today, payment_method: "Cash", description: "Fresh dressed chicken for pakora & joints", created_at: new Date().toISOString() },
+      { id: "demo-exp-1", category: "Raw Chicken Meat", amount: 2400, quantity: "12.0 kg", expense_date: today, payment_method: "Cash", description: "Fresh dressed chicken for pokodi & joints", created_at: new Date().toISOString() },
       { id: "demo-exp-2", category: "Cooking Oil", amount: 1800, quantity: "15 Liters (1 Tin)", expense_date: today, payment_method: "Cash", description: "Refined Sunflower Oil", created_at: new Date().toISOString() },
       { id: "demo-exp-3", category: "Fish & Seafood", amount: 600, quantity: "2.5 kg", expense_date: today, payment_method: "Cash", description: "Cleaned boneless fish cuts", created_at: new Date().toISOString() },
       { id: "demo-exp-4", category: "Spices & Masala Groceries", amount: 450, quantity: "Pack", expense_date: today, payment_method: "Cash", description: "Ginger-garlic, red chilli powder, salt", created_at: new Date().toISOString() },
@@ -2074,8 +2074,8 @@
 
     // 2. Set 1-Day Realistic Stock Entries (Weighed by Master Dileep)
     const demoStock = [
-      { item_id: "item-chicken-pakora", item_name: "Chicken Pakora", item_unit: "kg", unit_price: 480, opening_val: 0.500, opening_unit: "kg", added_val: 9.600, added_unit: "kg", closing_val: 0.600, closing_unit: "kg", opening_stock: 0.500, marinated_added_stock: 9.600, closing_stock: 0.600, sold_quantity: 9.500, total_sales: 4560 },
-      { item_id: "item-chicken-liver", item_name: "Chicken Liver Pakora", item_unit: "kg", unit_price: 400, opening_val: 0.000, opening_unit: "kg", added_val: 1800, added_unit: "g", closing_val: 300, closing_unit: "g", opening_stock: 0.000, marinated_added_stock: 1.800, closing_stock: 0.300, sold_quantity: 1.500, total_sales: 600 },
+      { item_id: "item-chicken-pokodi", item_name: "Chicken pokodi", item_unit: "kg", unit_price: 480, opening_val: 0.500, opening_unit: "kg", added_val: 9.600, added_unit: "kg", closing_val: 0.600, closing_unit: "kg", opening_stock: 0.500, marinated_added_stock: 9.600, closing_stock: 0.600, sold_quantity: 9.500, total_sales: 4560 },
+      { item_id: "item-chicken-liver", item_name: "Chicken Liver pokodi", item_unit: "kg", unit_price: 400, opening_val: 0.000, opening_unit: "kg", added_val: 1800, added_unit: "g", closing_val: 300, closing_unit: "g", opening_stock: 0.000, marinated_added_stock: 1.800, closing_stock: 0.300, sold_quantity: 1.500, total_sales: 600 },
       { item_id: "item-chicken-wings", item_name: "Chicken Wings", item_unit: "pieces", unit_price: 20, opening_val: 5, opening_unit: "pieces", added_val: 30, added_unit: "pieces", closing_val: 3, closing_unit: "pieces", opening_stock: 5, marinated_added_stock: 30, closing_stock: 3, sold_quantity: 32, total_sales: 640 },
       { item_id: "item-chicken-full-joint", item_name: "Chicken Full Joint (Leg Piece)", item_unit: "pieces", unit_price: 100, opening_val: 0, opening_unit: "pieces", added_val: 12, added_unit: "pieces", closing_val: 2, closing_unit: "pieces", opening_stock: 0, marinated_added_stock: 12, closing_stock: 2, sold_quantity: 10, total_sales: 1000 },
       { item_id: "item-chicken-half-joint", item_name: "Chicken Half Joint", item_unit: "pieces", unit_price: 50, opening_val: 0, opening_unit: "pieces", added_val: 6, added_unit: "pieces", closing_val: 1, closing_unit: "pieces", opening_stock: 0, marinated_added_stock: 6, closing_stock: 1, sold_quantity: 5, total_sales: 250 },
@@ -2121,7 +2121,7 @@
       appEl.innerHTML = `
         <div style="text-align:center; padding:50px 20px;">
           <div style="font-size:32px; margin-bottom:12px;">🍗</div>
-          <div style="font-size:16px; font-weight:700;">Loading Friends Chicken Pakora data...</div>
+          <div style="font-size:16px; font-weight:700;">Loading Friends Chicken pokodi data...</div>
         </div>
       `;
       return;

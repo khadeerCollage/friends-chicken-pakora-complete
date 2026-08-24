@@ -792,10 +792,10 @@
                     <span style="font-size:11px; font-weight:700; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px;">${itemUnitStr.toUpperCase()}</span>
                   </div>
                   <div class="stock-item-price">
-                    <span>Rate: ₹</span>
+                    <span style="font-size:11px; color:#94a3b8; font-weight:600;">${isWeight ? 'Rate ₹' : isEggs ? 'Rate ₹' : 'Rate ₹'}</span>
                     <input type="number" step="any" min="1" value="${line.unit_price}" 
                       oninput="window.fcp.updateStockLineValue(${idx}, 'unit_price', this.value)">
-                    <span id="rate-unit-label-${idx}">/ ${itemUnitStr}</span>
+                    <span id="rate-unit-label-${idx}" style="font-size:11px; color:#64748b;">/ ${isWeight ? 'kg' : itemUnitStr}</span>
                   </div>
                 </div>
 
@@ -829,33 +829,38 @@
                     </div>
                   </div>
 
-                  <!-- Multi-Batch Ready pokodi Panel (KG items only) -->
+                  <!-- Multi-Batch Ready Pakora Panel (KG items only) -->
                   <div class="batch-panel" id="batch-panel-${idx}">
                     <div class="batch-panel-header">
                       <div class="batch-panel-title">
-                        📸 Dileep's Ready pokodi Batches (from WhatsApp photos)
+                        📸 Dileep's Batches (WhatsApp photo weights)
                       </div>
                       <span class="batch-total-badge" id="batch-total-${idx}">
                         Total: ${line.added_val > 0 ? line.added_val + ' ' + (line.added_unit || 'kg') : '0 kg'}
                       </span>
                     </div>
                     <div id="batch-rows-${idx}">
-                      ${(line.batches && line.batches.length > 0) ? line.batches.map((b, bi) => `
-                        <div class="batch-row" id="batch-row-${idx}-${bi}">
-                          <span class="batch-row-label">Batch ${bi + 1}</span>
-                          <input type="number" step="any" min="0" value="${b.val || ''}" placeholder="0"
-                            oninput="window.fcp.updateBatch(${idx}, ${bi}, 'val', this.value)">
-                          <select class="batch-unit-select" onchange="window.fcp.updateBatch(${idx}, ${bi}, 'unit', this.value)">
-                            <option value="g" ${(b.unit === 'g' || b.unit === 'grams' || !b.unit) ? 'selected' : ''}>grams</option>
-                            <option value="kg" ${b.unit === 'kg' ? 'selected' : ''}>kg</option>
-                          </select>
-                          <button class="remove-batch-btn" onclick="window.fcp.removeBatch(${idx}, ${bi})" title="Remove batch">✕</button>
-                        </div>
-                      `).join('') : `
-                        <div style="font-size:12px; color:#9ca3af; text-align:center; padding:8px 0; font-style:italic;">
-                          No batches yet — add each batch Dileep weighs 👇
-                        </div>
-                      `}
+                      ${(() => {
+                        // If no batches array but added_val > 0, auto-show as Batch 1 (legacy/demo data)
+                        const batches = (line.batches && line.batches.length > 0)
+                          ? line.batches
+                          : (line.added_val > 0 ? [{ val: line.added_val, unit: line.added_unit || 'kg' }] : []);
+                        if (batches.length === 0) {
+                          return `<div style="font-size:12px; color:#9ca3af; text-align:center; padding:8px 0; font-style:italic;">No batches yet — add each batch Dileep weighs 👇</div>`;
+                        }
+                        return batches.map((b, bi) => `
+                          <div class="batch-row" id="batch-row-${idx}-${bi}">
+                            <span class="batch-row-label">Batch ${bi + 1}</span>
+                            <input type="number" step="any" min="0" value="${b.val || ''}" placeholder="0"
+                              oninput="window.fcp.updateBatch(${idx}, ${bi}, 'val', this.value)">
+                            <select class="batch-unit-select" onchange="window.fcp.updateBatch(${idx}, ${bi}, 'unit', this.value)">
+                              <option value="g" ${(b.unit === 'g' || b.unit === 'grams') ? 'selected' : ''}>grams</option>
+                              <option value="kg" ${b.unit === 'kg' ? 'selected' : ''}>kg</option>
+                            </select>
+                            <button class="remove-batch-btn" onclick="window.fcp.removeBatch(${idx}, ${bi})" title="Remove batch">✕</button>
+                          </div>
+                        `).join('');
+                      })()}
                     </div>
                     <button class="add-batch-btn" onclick="window.fcp.addBatch(${idx})">
                       + Add Batch (from Dileep's photo)
@@ -1139,7 +1144,7 @@
       <div class="header-bar">
         <div>
           <div class="brand-title">🍗 Master Menu & Selling Rates</div>
-          <div class="brand-sub">Stock items, units (Kg/Pieces/Plates), and default rates</div>
+          <div class="brand-sub">Set your selling prices here — used in night closing calculations</div>
         </div>
         <button class="action-btn dark" style="padding:8px 14px; font-size:13px;" onclick="window.fcp.openAddItemModal()">
           ➕ Add New Item
@@ -1155,21 +1160,49 @@
       </div>
 
       <div class="menu-grid">
-        ${list.map(item => `
+        ${list.map(item => {
+          const unit = (item.unit || "kg").toLowerCase();
+          const isKg = unit === "kg" || unit === "grams";
+          const isEggItem = unit === "eggs" || item.id === "item-eggs-stock";
+
+          return `
           <div class="menu-item-card">
             <div class="menu-item-info">
               <h4>${esc(item.name)}</h4>
-              <p style="font-size:12px; color:#64748b; margin-top:3px;">
-                Unit: <b>${(item.unit || "kg").toUpperCase()}</b> · Category: <b>${item.category}</b>
-              </p>
-              ${item.price_note ? `<p style="font-size:11px; color:#0284c7; margin-top:2px;">${esc(item.price_note)}</p>` : ""}
+              <div style="display:inline-block; font-size:10px; font-weight:700; color:#64748b; background:#e2e8f0; padding:2px 7px; border-radius:4px; margin-top:3px; letter-spacing:0.5px;">
+                ${item.category.toUpperCase()}
+              </div>
+              ${isKg && item.price_note ? `
+                <!-- Portion price breakdown for KG items -->
+                <div style="margin-top:8px;">
+                  <div style="font-size:10px; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Selling Prices:</div>
+                  <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                    ${item.price_note.split("|").map(p => p.trim()).map(p => `
+                      <span style="background:#f0f9ff; color:#0369a1; font-size:12px; font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid #bae6fd;">${esc(p)}</span>
+                    `).join("")}
+                  </div>
+                </div>
+              ` : isEggItem ? `
+                <div style="margin-top:7px; font-size:13px; font-weight:700; color:#0f172a;">
+                  ₹${item.price} / egg &nbsp;<span style="font-size:11px; color:#64748b; font-weight:400;">(2 eggs = ₹${item.price * 2})</span>
+                </div>
+              ` : `
+                <div style="margin-top:7px; font-size:13px; font-weight:700; color:#0f172a;">
+                  ₹${item.price} / ${unit}
+                </div>
+              `}
             </div>
             <div class="menu-item-right">
-              <div class="menu-price">${formatCurrency(item.price)} <span style="font-size:12px; font-weight:600; color:#64748b;">/ ${item.unit || "kg"}</span></div>
+              ${isKg ? `
+                <div style="text-align:right; margin-bottom:6px;">
+                  <div style="font-size:10px; color:#94a3b8; font-weight:600;">Calc Rate</div>
+                  <div style="font-size:16px; font-weight:800; color:#334155;">₹${item.price}<span style="font-size:10px; color:#94a3b8;">/kg</span></div>
+                </div>
+              ` : ``}
               <button class="edit-badge" onclick="window.fcp.openEditItemModal('${item.id}')">✏️ Edit Rate</button>
             </div>
           </div>
-        `).join("")}
+        `}).join("")}
       </div>
     `;
   }

@@ -231,6 +231,21 @@
     let rawUnit = (line && (line.item_unit || line.unit)) || (menuItem && menuItem.unit) || "kg";
     let unitPrice = line && line.unit_price !== undefined ? +line.unit_price : ((menuItem && +menuItem.price) || 0);
     let priceNote = (line && line.price_note) || (menuItem && menuItem.price_note) || "";
+    let category = (line && line.category) || (menuItem && menuItem.category);
+
+    if (!category) {
+      if (itemId.startsWith("item-chicken-") || itemId.startsWith("item-chilli-")) {
+        category = "Chicken";
+      } else if (itemId.startsWith("item-fish-")) {
+        category = "Fish";
+      } else if (itemId.startsWith("item-veg-")) {
+        category = "Veg/FastFood";
+      } else if (itemId.startsWith("item-egg") || itemId.startsWith("item-omelette-") || itemId === "item-boiled-egg") {
+        category = "Egg";
+      } else {
+        category = "Chicken";
+      }
+    }
 
     // Migrate legacy egg items to unified Eggs item
     if (itemId.startsWith("item-omelette-") || itemId === "item-boiled-egg" || itemId.startsWith("item-egg-")) {
@@ -239,6 +254,7 @@
       rawUnit = "eggs";
       unitPrice = 20;
       priceNote = "₹20 / egg (1 egg = ₹20, 2 eggs = ₹40)";
+      category = "Egg";
     }
 
     const isWeight = rawUnit === "kg" || rawUnit === "grams" || rawUnit === "g";
@@ -263,6 +279,7 @@
       item_id: itemId,
       item_name: itemName,
       item_unit: baseUnit,
+      category: category,
       unit_price: unitPrice,
       price_note: priceNote,
       
@@ -283,7 +300,6 @@
       total_sales: totalSales,
       notes: (line && line.notes) || ""
     };
-
   }
 
   // --- Toast Notifications ---
@@ -761,195 +777,227 @@
         </div>
       </div>
 
-      <!-- Step 1: Stock Entries with Flexible Per-Field KG / Grams Selection -->
-      <div class="wizard-card">
-        <div class="wizard-step-header">
-          <div class="step-number">1</div>
-          <div>
-            <div class="step-title">Stock Reconciliation & Sales Calculation</div>
-            <div class="step-subtitle">Select KG or Grams per field freely · Opening + Added - Closing = Sold</div>
-          </div>
+      <!-- Step 1: Stock Entries by Modular Category Components -->
+      <div class="wizard-step-header" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:14px; margin-bottom:14px;">
+        <div class="step-number">1</div>
+        <div>
+          <div class="step-title">Stock Reconciliation & Sales Calculation</div>
+          <div class="step-subtitle">Divided into 4 clean components: Chicken, Eggs, Manchuria & Fish</div>
         </div>
+      </div>
 
-        <div id="stockLinesContainer">
-          ${stockLines.map((line, idx) => {
-            const itemUnitStr = (line.item_unit || "kg").toLowerCase();
-            const isWeight = itemUnitStr === "kg" || itemUnitStr === "grams" || itemUnitStr === "g";
-            const isEggs = itemUnitStr === "eggs" || itemUnitStr === "egg" || line.item_id === "item-eggs-stock";
-            const openUnit = line.opening_unit || (isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr));
-            const addedUnit = line.added_unit || (isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr));
-            const closeUnit = line.closing_unit || (isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr));
+      <div id="stockLinesContainer">
+        ${(() => {
+          const categoryDefs = [
+            { key: "Chicken", title: "🍗 Chicken Items Component", subtitle: "Pakora batches, wings, joints & chilli dishes" },
+            { key: "Egg", title: "🥚 Egg Items Component", subtitle: "Daily raw eggs tray count & omelette usage" },
+            { key: "Veg/FastFood", title: "🥟 Veg & Manchuria Items Component", subtitle: "Fast food manchuria plates & fry" },
+            { key: "Fish", title: "🐟 Fish Items Component", subtitle: "Fresh fish fry & fish head pieces" }
+          ];
 
-            const openVal = line.opening_val !== undefined ? line.opening_val : (line.opening_stock || 0);
-            const addedVal = line.added_val !== undefined ? line.added_val : (line.marinated_added_stock || 0);
-            const closeVal = line.closing_val !== undefined ? line.closing_val : (line.closing_stock || 0);
+          return categoryDefs.map(cDef => {
+            const catItems = stockLines
+              .map((line, idx) => ({ line, idx }))
+              .filter(({ line }) => {
+                const cat = line.category || (line.item_id.startsWith("item-chicken-") || line.item_id.startsWith("item-chilli-") ? "Chicken" : (line.item_id.startsWith("item-fish-") ? "Fish" : (line.item_id.startsWith("item-veg-") ? "Veg/FastFood" : (line.item_id.startsWith("item-egg") ? "Egg" : "Chicken"))));
+                return cat === cDef.key;
+              });
+
+            if (catItems.length === 0) return "";
 
             return `
-              <div class="stock-item-row" id="stock-row-${idx}" data-idx="${idx}" data-itemid="${line.item_id}">
-                <div class="stock-item-header">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span class="stock-item-name">${esc(line.item_name)}</span>
-                    <span style="font-size:11px; font-weight:700; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px;">${itemUnitStr.toUpperCase()}</span>
+              <div class="wizard-card" style="margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #f1f5f9;">
+                  <div>
+                    <div style="font-size:16px; font-weight:800; color:#0f172a;">${cDef.title}</div>
+                    <div style="font-size:12px; color:#64748b; margin-top:2px;">${cDef.subtitle}</div>
                   </div>
-                  <div class="stock-item-price">
-                    <span style="font-size:11px; color:#94a3b8; font-weight:600;">${isWeight ? 'Rate ₹' : isEggs ? 'Rate ₹' : 'Rate ₹'}</span>
-                    <input type="number" step="any" min="1" value="${line.unit_price}" 
-                      oninput="window.fcp.updateStockLineValue(${idx}, 'unit_price', this.value)">
-                    <span id="rate-unit-label-${idx}" style="font-size:11px; color:#64748b;">/ ${isWeight ? 'kg' : itemUnitStr}</span>
-                  </div>
+                  <span style="font-size:11px; font-weight:700; background:#f1f5f9; color:#475569; padding:4px 9px; border-radius:6px;">
+                    ${catItems.length} items
+                  </span>
                 </div>
 
-                ${isWeight ? `
-                  <!-- KG Items: Opening + Multi-Batch Panel + Leftover -->
-                  <div class="stock-calc-grid">
-                    <!-- Opening Stock Field -->
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Opening</label>
-                        <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'opening_unit', this.value)">
-                          <option value="kg" ${openUnit === 'kg' ? 'selected' : ''}>kg</option>
-                          <option value="g" ${openUnit === 'g' || openUnit === 'grams' ? 'selected' : ''}>grams</option>
-                        </select>
-                      </div>
-                      <input type="number" step="any" min="0" value="${openVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'opening_val', this.value)">
-                    </div>
+                <div class="stock-cat-items">
+                  ${catItems.map(({ line, idx }) => {
+                    const itemUnitStr = (line.item_unit || "kg").toLowerCase();
+                    const isWeight = itemUnitStr === "kg" || itemUnitStr === "grams" || itemUnitStr === "g";
+                    const isEggs = itemUnitStr === "eggs" || itemUnitStr === "egg" || line.item_id === "item-eggs-stock";
+                    const openUnit = line.opening_unit || (isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr));
+                    const addedUnit = line.added_unit || (isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr));
+                    const closeUnit = line.closing_unit || (isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr));
 
-                    <!-- Leftover Closing Field -->
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Leftover</label>
-                        <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'closing_unit', this.value)">
-                          <option value="kg" ${closeUnit === 'kg' ? 'selected' : ''}>kg</option>
-                          <option value="g" ${closeUnit === 'g' || closeUnit === 'grams' ? 'selected' : ''}>grams</option>
-                        </select>
-                      </div>
-                      <input type="number" step="any" min="0" value="${closeVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'closing_val', this.value)">
-                    </div>
-                  </div>
+                    const openVal = line.opening_val !== undefined ? line.opening_val : (line.opening_stock || 0);
+                    const addedVal = line.added_val !== undefined ? line.added_val : (line.marinated_added_stock || 0);
+                    const closeVal = line.closing_val !== undefined ? line.closing_val : (line.closing_stock || 0);
 
-                  <!-- Multi-Batch Ready Pakora Panel (KG items only) -->
-                  <div class="batch-panel" id="batch-panel-${idx}">
-                    <div class="batch-panel-header">
-                      <div class="batch-panel-title">
-                        📸 Dileep's Batches (WhatsApp photo weights)
-                      </div>
-                      <span class="batch-total-badge" id="batch-total-${idx}">
-                        Total: ${line.added_val > 0 ? line.added_val + ' ' + (line.added_unit || 'kg') : '0 kg'}
-                      </span>
-                    </div>
-                    <div id="batch-rows-${idx}">
-                      ${(() => {
-                        // If no batches array but added_val > 0, auto-show as Batch 1 (legacy/demo data)
-                        const batches = (line.batches && line.batches.length > 0)
-                          ? line.batches
-                          : (line.added_val > 0 ? [{ val: line.added_val, unit: line.added_unit || 'kg' }] : []);
-                        if (batches.length === 0) {
-                          return `<div style="font-size:12px; color:#9ca3af; text-align:center; padding:8px 0; font-style:italic;">No batches yet — add each batch Dileep weighs 👇</div>`;
-                        }
-                        return batches.map((b, bi) => `
-                          <div class="batch-row" id="batch-row-${idx}-${bi}">
-                            <span class="batch-row-label">Batch ${bi + 1}</span>
-                            <input type="number" step="any" min="0" value="${b.val || ''}" placeholder="0"
-                              oninput="window.fcp.updateBatch(${idx}, ${bi}, 'val', this.value)">
-                            <select class="batch-unit-select" onchange="window.fcp.updateBatch(${idx}, ${bi}, 'unit', this.value)">
-                              <option value="g" ${(b.unit === 'g' || b.unit === 'grams') ? 'selected' : ''}>grams</option>
-                              <option value="kg" ${b.unit === 'kg' ? 'selected' : ''}>kg</option>
-                            </select>
-                            <button class="remove-batch-btn" onclick="window.fcp.removeBatch(${idx}, ${bi})" title="Remove batch">✕</button>
+                    return `
+                      <div class="stock-item-row" id="stock-row-${idx}" data-idx="${idx}" data-itemid="${line.item_id}">
+                        <div class="stock-item-header">
+                          <div style="display:flex; align-items:center; gap:8px;">
+                            <span class="stock-item-name">${esc(line.item_name)}</span>
+                            <span style="font-size:11px; font-weight:700; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px;">${itemUnitStr.toUpperCase()}</span>
                           </div>
-                        `).join('');
-                      })()}
-                    </div>
-                    <button class="add-batch-btn" onclick="window.fcp.addBatch(${idx})">
-                      + Add Batch (from Dileep's photo)
-                    </button>
-                  </div>
-                ` : isEggs ? `
-                  <!-- Eggs Stock: Opening + Added Today + Leftover with eggs/crates option -->
-                  <div class="stock-calc-grid">
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Opening</label>
-                        <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'opening_unit', this.value)">
-                          <option value="eggs" ${openUnit === 'eggs' ? 'selected' : ''}>eggs</option>
-                          <option value="crates" ${openUnit === 'crates' || openUnit === 'crate' ? 'selected' : ''}>crates (30 eggs)</option>
-                        </select>
-                      </div>
-                      <input type="number" step="any" min="0" value="${openVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'opening_val', this.value)">
-                    </div>
+                          <div class="stock-item-price">
+                            <span style="font-size:11px; color:#94a3b8; font-weight:600;">Rate ₹</span>
+                            <input type="number" step="any" min="1" value="${line.unit_price}" 
+                              oninput="window.fcp.updateStockLineValue(${idx}, 'unit_price', this.value)">
+                            <span id="rate-unit-label-${idx}" style="font-size:11px; color:#64748b;">/ ${isWeight ? 'kg' : itemUnitStr}</span>
+                          </div>
+                        </div>
 
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Added Today</label>
-                        <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'added_unit', this.value)">
-                          <option value="eggs" ${addedUnit === 'eggs' ? 'selected' : ''}>eggs</option>
-                          <option value="crates" ${addedUnit === 'crates' || addedUnit === 'crate' ? 'selected' : ''}>crates (30 eggs)</option>
-                        </select>
-                      </div>
-                      <input type="number" step="any" min="0" value="${addedVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'added_val', this.value)">
-                    </div>
+                        ${isWeight ? `
+                          <!-- KG Items: Opening + Multi-Batch Panel + Leftover -->
+                          <div class="stock-calc-grid">
+                            <!-- Opening Stock Field -->
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Opening</label>
+                                <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'opening_unit', this.value)">
+                                  <option value="kg" ${openUnit === 'kg' ? 'selected' : ''}>kg</option>
+                                  <option value="g" ${openUnit === 'g' || openUnit === 'grams' ? 'selected' : ''}>grams</option>
+                                </select>
+                              </div>
+                              <input type="number" step="any" min="0" value="${openVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'opening_val', this.value)">
+                            </div>
 
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Leftover</label>
-                        <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'closing_unit', this.value)">
-                          <option value="eggs" ${closeUnit === 'eggs' ? 'selected' : ''}>eggs</option>
-                          <option value="crates" ${closeUnit === 'crates' || closeUnit === 'crate' ? 'selected' : ''}>crates (30 eggs)</option>
-                        </select>
-                      </div>
-                      <input type="number" step="any" min="0" value="${closeVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'closing_val', this.value)">
-                    </div>
-                  </div>
-                ` : `
-                  <!-- Pieces/Plates Items: Simple Opening / Added / Leftover -->
-                  <div class="stock-calc-grid">
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Opening</label>
-                        <span style="font-size:11px; color:#64748b;">${itemUnitStr}</span>
-                      </div>
-                      <input type="number" step="any" min="0" value="${openVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'opening_val', this.value)">
-                    </div>
+                            <!-- Leftover Closing Field -->
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Leftover</label>
+                                <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'closing_unit', this.value)">
+                                  <option value="kg" ${closeUnit === 'kg' ? 'selected' : ''}>kg</option>
+                                  <option value="g" ${closeUnit === 'g' || closeUnit === 'grams' ? 'selected' : ''}>grams</option>
+                                </select>
+                              </div>
+                              <input type="number" step="any" min="0" value="${closeVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'closing_val', this.value)">
+                            </div>
+                          </div>
 
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Added Today</label>
-                        <span style="font-size:11px; color:#64748b;">${itemUnitStr}</span>
-                      </div>
-                      <input type="number" step="any" min="0" value="${addedVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'added_val', this.value)">
-                    </div>
+                          <!-- Multi-Batch Ready Pakora Panel (KG items only) -->
+                          <div class="batch-panel" id="batch-panel-${idx}">
+                            <div class="batch-panel-header">
+                              <div class="batch-panel-title">
+                                📸 Dileep's Batches (WhatsApp photo weights)
+                              </div>
+                              <span class="batch-total-badge" id="batch-total-${idx}">
+                                Total: ${line.added_val > 0 ? line.added_val + ' ' + (line.added_unit || 'kg') : '0 kg'}
+                              </span>
+                            </div>
+                            <div id="batch-rows-${idx}">
+                              ${(() => {
+                                const batches = (line.batches && line.batches.length > 0)
+                                  ? line.batches
+                                  : (line.added_val > 0 ? [{ val: line.added_val, unit: line.added_unit || 'kg' }] : []);
+                                if (batches.length === 0) {
+                                  return `<div style="font-size:12px; color:#9ca3af; text-align:center; padding:8px 0; font-style:italic;">No batches yet — add each batch Dileep weighs 👇</div>`;
+                                }
+                                return batches.map((b, bi) => `
+                                  <div class="batch-row" id="batch-row-${idx}-${bi}">
+                                    <span class="batch-row-label">Batch ${bi + 1}</span>
+                                    <input type="number" step="any" min="0" value="${b.val || ''}" placeholder="0"
+                                      oninput="window.fcp.updateBatch(${idx}, ${bi}, 'val', this.value)">
+                                    <select class="batch-unit-select" onchange="window.fcp.updateBatch(${idx}, ${bi}, 'unit', this.value)">
+                                      <option value="g" ${(b.unit === 'g' || b.unit === 'grams') ? 'selected' : ''}>grams</option>
+                                      <option value="kg" ${b.unit === 'kg' ? 'selected' : ''}>kg</option>
+                                    </select>
+                                    <button class="remove-batch-btn" onclick="window.fcp.removeBatch(${idx}, ${bi})" title="Remove batch">✕</button>
+                                  </div>
+                                `).join('');
+                              })()}
+                            </div>
+                            <button class="add-batch-btn" onclick="window.fcp.addBatch(${idx})">
+                              + Add Batch (from Dileep's photo)
+                            </button>
+                          </div>
+                        ` : isEggs ? `
+                          <!-- Eggs Stock: Opening + Added Today + Leftover with eggs/crates option -->
+                          <div class="stock-calc-grid">
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Opening</label>
+                                <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'opening_unit', this.value)">
+                                  <option value="eggs" ${openUnit === 'eggs' ? 'selected' : ''}>eggs</option>
+                                  <option value="crates" ${openUnit === 'crates' || openUnit === 'crate' ? 'selected' : ''}>crates (30 eggs)</option>
+                                </select>
+                              </div>
+                              <input type="number" step="any" min="0" value="${openVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'opening_val', this.value)">
+                            </div>
 
-                    <div class="calc-field">
-                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <label style="margin-bottom:0;">Leftover</label>
-                        <span style="font-size:11px; color:#64748b;">${itemUnitStr}</span>
-                      </div>
-                      <input type="number" step="any" min="0" value="${closeVal}" placeholder="0"
-                        oninput="window.fcp.updateStockLineValue(${idx}, 'closing_val', this.value)">
-                    </div>
-                  </div>
-                `}
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Added Today</label>
+                                <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'added_unit', this.value)">
+                                  <option value="eggs" ${addedUnit === 'eggs' ? 'selected' : ''}>eggs</option>
+                                  <option value="crates" ${addedUnit === 'crates' || addedUnit === 'crate' ? 'selected' : ''}>crates (30 eggs)</option>
+                                </select>
+                              </div>
+                              <input type="number" step="any" min="0" value="${addedVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'added_val', this.value)">
+                            </div>
 
-                <div class="stock-result-row" style="margin-top:6px;">
-                  <span class="stock-sold-badge" id="sold-badge-${idx}">
-                    Sold: <b>${line.sold_quantity} ${itemUnitStr}</b> ${isWeight && line.sold_quantity > 0 ? `<span style="color:#64748b; font-size:11px;">(~${Math.round(line.sold_quantity * 1000)} g)</span>` : (isEggs && line.sold_quantity >= 30 ? `<span style="color:#64748b; font-size:11px;">(~${(Math.round((line.sold_quantity / 30) * 10) / 10)} crates)</span>` : '')}
-                  </span>
-                  <span class="stock-revenue-badge" id="sales-badge-${idx}">
-                    Expected Sales: ${formatCurrency(line.total_sales)}
-                  </span>
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Leftover</label>
+                                <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'closing_unit', this.value)">
+                                  <option value="eggs" ${closeUnit === 'eggs' ? 'selected' : ''}>eggs</option>
+                                  <option value="crates" ${closeUnit === 'crates' || closeUnit === 'crate' ? 'selected' : ''}>crates (30 eggs)</option>
+                                </select>
+                              </div>
+                              <input type="number" step="any" min="0" value="${closeVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'closing_val', this.value)">
+                            </div>
+                          </div>
+                        ` : `
+                          <!-- Pieces/Plates Items: Simple Opening / Added / Leftover -->
+                          <div class="stock-calc-grid">
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Opening</label>
+                                <span style="font-size:11px; color:#64748b;">${itemUnitStr}</span>
+                              </div>
+                              <input type="number" step="any" min="0" value="${openVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'opening_val', this.value)">
+                            </div>
+
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Added Today</label>
+                                <span style="font-size:11px; color:#64748b;">${itemUnitStr}</span>
+                              </div>
+                              <input type="number" step="any" min="0" value="${addedVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'added_val', this.value)">
+                            </div>
+
+                            <div class="calc-field">
+                              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="margin-bottom:0;">Leftover</label>
+                                <span style="font-size:11px; color:#64748b;">${itemUnitStr}</span>
+                              </div>
+                              <input type="number" step="any" min="0" value="${closeVal}" placeholder="0"
+                                oninput="window.fcp.updateStockLineValue(${idx}, 'closing_val', this.value)">
+                            </div>
+                          </div>
+                        `}
+
+                        <div class="stock-result-row" style="margin-top:6px;">
+                          <span class="stock-sold-badge" id="sold-badge-${idx}">
+                            Sold: <b>${line.sold_quantity} ${itemUnitStr}</b> ${isWeight && line.sold_quantity > 0 ? `<span style="color:#64748b; font-size:11px;">(~${Math.round(line.sold_quantity * 1000)} g)</span>` : (isEggs && line.sold_quantity >= 30 ? `<span style="color:#64748b; font-size:11px;">(~${(Math.round((line.sold_quantity / 30) * 10) / 10)} crates)</span>` : '')}
+                          </span>
+                          <span class="stock-revenue-badge" id="sales-badge-${idx}">
+                            Expected Sales: ${formatCurrency(line.total_sales)}
+                          </span>
+                        </div>
+                      </div>
+                    `;
+                  }).join("")}
                 </div>
               </div>
             `;
-
-          }).join("")}
-        </div>
+          }).join("");
+        })()}
       </div>
 
       <!-- Step 2: Cash & UPI Collections Tally -->

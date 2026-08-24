@@ -1,9 +1,26 @@
-# Friends Chiken Pokadi — HTML/CSS/JS
+# ఫ్రెండ్స్ చికెన్ పకోడి / రియాన్ ఫాస్ట్‌ఫుడ్స్ — డైలీ స్టాక్ & క్యాష్ ట్రాకర్
 
-Static mobile-first business tracker using Supabase.
+Friends Chicken Pakoda / Riyan Fast Foods — High-Speed Daily Stock, Marination Boost & Cash Reconciliation System.
 
-1. Run `supabase-schema.sql` in Supabase SQL Editor.
-2. Put your Supabase Project URL and public publishable/anon key in `config.js`.
-3. Deploy the folder to Vercel as a static site. No build command is required.
+## ✨ ఫీచర్లు (Features)
+1. **15-మినిట్స్ డైలీ నైట్ క్లోజింగ్ (Daily Night Closing Wizard)**:
+   - నిన్నటి మిగిలిన స్టాక్ ఆటోమేటిక్‌గా ఓపెనింగ్ స్టాక్ అవుతుంది.
+   - ఉదయం తెచ్చిన స్టాక్ (Raw & Marinated Weighed +20% Boost) నమోదు.
+   - రాత్రి మిగిలిన స్టాక్ నమోదు చేయగానే ఆటోమేటిక్‌గా అమ్మిన మొత్తం & ఎక్స్‌పెక్టెడ్ సేల్స్ క్యాలిక్యులేషన్.
+   - చేతిలోని క్యాష్ + ఆన్‌లైన్ UPI ఎంటర్ చేయగానే క్యాష్ టాలీ (సరిపోయిందా / షార్టేజ్ ఉందా) తక్షణమే తేలిపోతుంది.
+   - నికర రోజువారీ లాభం (Net Profit = సేల్స్ - ఖర్చులు - దిలీప్ మాస్టర్ జీతం).
 
-Never put a Supabase service-role/secret key in `config.js`.
+2. **మెనూ ఐటమ్స్ & ధరలు (Dynamic Menu & Pricing)**:
+   - షాప్ బ్యానర్‌లోని అన్ని 20+ ఐటమ్స్ (చికెన్ పకోడి, లివర్, వింగ్స్, జాయింట్స్, ఫిష్, ఆమ్లెట్, ఎగ్ చిల్లీ, మంచూరియా).
+   - ధరలు, మసాలా వెయిట్ పెరుగుదల % ఎప్పుడైనా 1-ట్యాప్‌లో మార్చుకోవచ్చు.
+
+3. **ఖర్చులు & సరుకుల కొనుగోలు (Expenses Tracking)**:
+   - చికెన్, నూనె, గుడ్లు, సరుకులు, గ్యాస్, దిలీప్ మాస్టర్ డైలీ బత్తా.
+
+4. **హైబ్రిడ్ సింక్ (Supabase Cloud + Local Storage Fallback)**:
+   - నెట్ లేకపోయినా లోకల్ స్టోరేజ్‌లో పనిచేస్తుంది, Supabase కాన్ఫిగర్ చేయగానే క్లౌడ్‌లో సింక్ అవుతుంది.
+
+## 🚀 Setup & Deployment
+1. Supabase SQL Editor లో `supabase-schema.sql` రన్ చేయండి.
+2. మీ Supabase URL మరియు Anon Key ని `config.js` లో ఇవ్వండి.
+3. Vercel లేదా Netlify లో డైరెక్ట్ స్టాటిక్ సైట్‌గా డిప్లాయ్ చేయండి. No build command needed!

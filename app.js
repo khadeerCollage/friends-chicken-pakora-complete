@@ -1848,6 +1848,14 @@
     }
   }
 
+  function updateChickenIntake(field, val) {
+    updateChickenIntakeVal(field, val);
+  }
+
+  function syncChickenPartAdded(idx, val, unit) {
+    updateChickenIntakeCut('pieces', val, idx);
+  }
+
   // 2. Edit Expense Modal (Direct Edit Support)
   function openEditExpenseModal(expId) {
     const exp = (S.expenses || []).find((e) => e.id === expId);

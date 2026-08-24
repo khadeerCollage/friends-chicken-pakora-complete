@@ -676,7 +676,6 @@
         </button>
       </div>
 
-      
 
       <!-- Today's Master Stock Snapshot -->
       <div class="section">

@@ -851,11 +851,13 @@
 
                       <div>
                         <label style="font-size:12px; font-weight:700; color:#374151; display:block; margin-bottom:4px;">
-                          Est. Raw Pakora Meat
+                          Raw Pakora Meat (kg)
                         </label>
-                        <div id="intake-pakora-meat-badge" style="padding:9px 12px; background:#ffedd5; border:1.5px solid #fed7aa; border-radius:8px; font-size:15px; font-weight:800; color:#ea580c;">
-                          ${closing.raw_chicken_intake_kg ? `${Math.max(0, Math.round((+closing.raw_chicken_intake_kg - (((liverItem ? liverItem.added_val : 0))/1000))*1000)/1000)} kg` : '— kg'}
-                        </div>
+                        <input type="number" step="any" min="0" id="intake-pakora-meat-input"
+                          value="${closing.raw_pakora_meat_kg !== undefined && closing.raw_pakora_meat_kg !== '' ? closing.raw_pakora_meat_kg : (closing.raw_chicken_intake_kg ? Math.max(0, Math.round((+closing.raw_chicken_intake_kg - (((liverItem ? liverItem.added_val : 0))/1000))*1000)/1000) : '')}"
+                          placeholder="0"
+                          style="width:100%; padding:9px 12px; border:1.5px solid #fb923c; border-radius:8px; font-size:15px; font-weight:800; background:#fff; color:#ea580c;"
+                          oninput="window.fcp.updateChickenIntake('raw_pakora_meat_kg', this.value)">
                       </div>
                     </div>
 
@@ -935,11 +937,8 @@
                             <span class="stock-item-name">${esc(line.item_name)}</span>
                             <span style="font-size:11px; font-weight:700; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px;">${itemUnitStr.toUpperCase()}</span>
                           </div>
-                          <div class="stock-item-price">
-                            <span style="font-size:11px; color:#94a3b8; font-weight:600;">Rate ₹</span>
-                            <input type="number" step="any" min="1" value="${line.unit_price}" 
-                              oninput="window.fcp.updateStockLineValue(${idx}, 'unit_price', this.value)">
-                            <span id="rate-unit-label-${idx}" style="font-size:11px; color:#64748b;">/ ${isWeight ? 'kg' : itemUnitStr}</span>
+                          <div class="stock-item-price" style="font-size:12px; font-weight:700; color:#475569; background:#f8fafc; padding:3px 8px; border-radius:6px; border:1px solid #e2e8f0;">
+                            ₹${line.unit_price} / ${isWeight ? 'kg' : itemUnitStr}
                           </div>
                         </div>
 
@@ -1667,14 +1666,18 @@
     S.closings[dateStr][field] = +val || 0;
     saveLocal("closings", S.closings);
 
-    // Update pakora meat badge in DOM
-    const liverLine = (S.dailyStock[dateStr] || []).find((l) => l.item_id === "item-chicken-liver");
-    const liverKg = liverLine ? ((liverLine.added_unit === 'g' || liverLine.added_unit === 'grams') ? (+liverLine.added_val || 0)/1000 : (+liverLine.added_val || 0)) : 0;
-    const rawTotal = +val || 0;
-    const pakoraMeatKg = Math.max(0, Math.round((rawTotal - liverKg) * 1000) / 1000);
-    const badge = document.querySelector("#intake-pakora-meat-badge");
-    if (badge) {
-      badge.textContent = rawTotal > 0 ? `${pakoraMeatKg} kg` : '— kg';
+    // Auto-update pakora meat input if raw_chicken_intake_kg was changed
+    if (field === "raw_chicken_intake_kg") {
+      const liverLine = (S.dailyStock[dateStr] || []).find((l) => l.item_id === "item-chicken-liver");
+      const liverKg = liverLine ? ((liverLine.added_unit === 'g' || liverLine.added_unit === 'grams') ? (+liverLine.added_val || 0)/1000 : (+liverLine.added_val || 0)) : 0;
+      const rawTotal = +val || 0;
+      const pakoraMeatKg = Math.max(0, Math.round((rawTotal - liverKg) * 1000) / 1000);
+      const inp = document.querySelector("#intake-pakora-meat-input");
+      if (inp) {
+        inp.value = rawTotal > 0 ? pakoraMeatKg : '';
+        S.closings[dateStr].raw_pakora_meat_kg = rawTotal > 0 ? pakoraMeatKg : 0;
+        saveLocal("closings", S.closings);
+      }
     }
   }
 
@@ -1695,8 +1698,6 @@
       if (lineEl) {
         const inputs = lineEl.querySelectorAll('input[type="number"]');
         if (inputs && inputs.length >= 2) {
-          // input[0] is rate or opening, input[1] is added or closing
-          // Let's find the added input specifically
           const addedInp = lineEl.querySelector('.calc-field:nth-child(2) input') || inputs[1];
           if (addedInp && addedInp.value !== val) {
             addedInp.value = val;
@@ -1704,15 +1705,17 @@
         }
       }
 
-      // Update top pakora meat badge if liver was changed
+      // Update top pakora meat input if liver was changed
       if (lines[idx].item_id === "item-chicken-liver") {
         const closing = getClosingForDate(dateStr);
         const rawTotal = +closing.raw_chicken_intake_kg || 0;
         const liverKg = (lines[idx].added_unit === 'g' || lines[idx].added_unit === 'grams') ? (+val || 0)/1000 : (+val || 0);
         const pakoraMeatKg = Math.max(0, Math.round((rawTotal - liverKg) * 1000) / 1000);
-        const badge = document.querySelector("#intake-pakora-meat-badge");
-        if (badge) {
-          badge.textContent = rawTotal > 0 ? `${pakoraMeatKg} kg` : '— kg';
+        const inp = document.querySelector("#intake-pakora-meat-input");
+        if (inp) {
+          inp.value = rawTotal > 0 ? pakoraMeatKg : '';
+          S.closings[dateStr].raw_pakora_meat_kg = rawTotal > 0 ? pakoraMeatKg : 0;
+          saveLocal("closings", S.closings);
         }
       }
     }

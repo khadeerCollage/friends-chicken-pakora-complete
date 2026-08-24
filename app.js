@@ -805,6 +805,16 @@
 
             if (catItems.length === 0) return "";
 
+            const isChickenCat = cDef.key === "Chicken";
+            const wingsItem = stockLines.find((l) => l.item_id === "item-chicken-wings");
+            const wingsIdx = stockLines.findIndex((l) => l.item_id === "item-chicken-wings");
+            const fullJointItem = stockLines.find((l) => l.item_id === "item-chicken-full-joint");
+            const fullJointIdx = stockLines.findIndex((l) => l.item_id === "item-chicken-full-joint");
+            const halfJointItem = stockLines.find((l) => l.item_id === "item-chicken-half-joint");
+            const halfJointIdx = stockLines.findIndex((l) => l.item_id === "item-chicken-half-joint");
+            const liverItem = stockLines.find((l) => l.item_id === "item-chicken-liver");
+            const liverIdx = stockLines.findIndex((l) => l.item_id === "item-chicken-liver");
+
             return `
               <div class="wizard-card" style="margin-bottom:16px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #f1f5f9;">
@@ -816,6 +826,94 @@
                     ${catItems.length} items
                   </span>
                 </div>
+
+                ${isChickenCat ? `
+                  <!-- Morning Total Raw Chicken Intake & Pieces Cut Header -->
+                  <div style="background:#fff7ed; border:1.5px solid #fed7aa; border-radius:12px; padding:14px; margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                      <div style="font-size:13px; font-weight:800; color:#ea580c; display:flex; align-items:center; gap:6px;">
+                        🍗 Total Raw Chicken Brought Today
+                      </div>
+                      <span style="font-size:11px; color:#9a3412; font-weight:600;">Morning Purchase Intake</span>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+                      <div>
+                        <label style="font-size:12px; font-weight:700; color:#374151; display:block; margin-bottom:4px;">
+                          Total Raw Chicken Weight (kg)
+                        </label>
+                        <input type="number" step="any" min="0" id="intake-total-chicken"
+                          value="${closing.raw_chicken_intake_kg || ''}"
+                          placeholder="e.g. 12"
+                          style="width:100%; padding:9px 12px; border:1.5px solid #fb923c; border-radius:8px; font-size:15px; font-weight:800; background:#fff;"
+                          oninput="window.fcp.updateChickenIntake('raw_chicken_intake_kg', this.value)">
+                      </div>
+
+                      <div>
+                        <label style="font-size:12px; font-weight:700; color:#374151; display:block; margin-bottom:4px;">
+                          Est. Raw Pakora Meat
+                        </label>
+                        <div id="intake-pakora-meat-badge" style="padding:9px 12px; background:#ffedd5; border:1.5px solid #fed7aa; border-radius:8px; font-size:15px; font-weight:800; color:#ea580c;">
+                          ${closing.raw_chicken_intake_kg ? `${Math.max(0, Math.round((+closing.raw_chicken_intake_kg - (((liverItem ? liverItem.added_val : 0))/1000))*1000)/1000)} kg` : '— kg'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style="font-size:11px; font-weight:700; color:#64748b; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                      Pieces Cut From Today's Chicken (Auto-syncs Added Today below):
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px;">
+                      <!-- Wings piece count -->
+                      <div style="background:#fff; border:1px solid #fed7aa; border-radius:8px; padding:8px 10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                          <span style="font-size:11px; font-weight:700; color:#374151;">Wings</span>
+                          <span style="font-size:10px; color:#94a3b8;">pieces</span>
+                        </div>
+                        <input type="number" step="1" min="0" value="${wingsItem?.added_val || ''}" placeholder="0"
+                          id="intake-wings"
+                          style="width:100%; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; font-size:14px; font-weight:700;"
+                          oninput="window.fcp.syncChickenPartAdded(${wingsIdx}, this.value, 'pieces')">
+                      </div>
+
+                      <!-- Full Joint piece count -->
+                      <div style="background:#fff; border:1px solid #fed7aa; border-radius:8px; padding:8px 10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                          <span style="font-size:11px; font-weight:700; color:#374151;">Full Joint</span>
+                          <span style="font-size:10px; color:#94a3b8;">pieces</span>
+                        </div>
+                        <input type="number" step="1" min="0" value="${fullJointItem?.added_val || ''}" placeholder="0"
+                          id="intake-full-joint"
+                          style="width:100%; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; font-size:14px; font-weight:700;"
+                          oninput="window.fcp.syncChickenPartAdded(${fullJointIdx}, this.value, 'pieces')">
+                      </div>
+
+                      <!-- Half Joint piece count -->
+                      <div style="background:#fff; border:1px solid #fed7aa; border-radius:8px; padding:8px 10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                          <span style="font-size:11px; font-weight:700; color:#374151;">Half Joint</span>
+                          <span style="font-size:10px; color:#94a3b8;">pieces</span>
+                        </div>
+                        <input type="number" step="1" min="0" value="${halfJointItem?.added_val || ''}" placeholder="0"
+                          id="intake-half-joint"
+                          style="width:100%; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; font-size:14px; font-weight:700;"
+                          oninput="window.fcp.syncChickenPartAdded(${halfJointIdx}, this.value, 'pieces')">
+                      </div>
+
+                      <!-- Liver weight -->
+                      <div style="background:#fff; border:1px solid #fed7aa; border-radius:8px; padding:8px 10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                          <span style="font-size:11px; font-weight:700; color:#374151;">Liver</span>
+                          <span style="font-size:10px; color:#94a3b8;">grams</span>
+                        </div>
+                        <input type="number" step="any" min="0" value="${liverItem?.added_val || ''}" placeholder="0"
+                          id="intake-liver"
+                          style="width:100%; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; font-size:14px; font-weight:700;"
+                          oninput="window.fcp.syncChickenPartAdded(${liverIdx}, this.value, 'g')">
+                      </div>
+                    </div>
+                  </div>
+                ` : ''}
 
                 <div class="stock-cat-items">
                   ${catItems.map(({ line, idx }) => {
@@ -1559,6 +1657,65 @@
     if (msg) msg.style.display = "block";
 
     showToast("✅ Breakdown applied to today's stock!");
+  }
+
+  function updateChickenIntake(field, val) {
+    const dateStr = S.selectedDate;
+    if (!S.closings[dateStr]) {
+      S.closings[dateStr] = getClosingForDate(dateStr);
+    }
+    S.closings[dateStr][field] = +val || 0;
+    saveLocal("closings", S.closings);
+
+    // Update pakora meat badge in DOM
+    const liverLine = (S.dailyStock[dateStr] || []).find((l) => l.item_id === "item-chicken-liver");
+    const liverKg = liverLine ? ((liverLine.added_unit === 'g' || liverLine.added_unit === 'grams') ? (+liverLine.added_val || 0)/1000 : (+liverLine.added_val || 0)) : 0;
+    const rawTotal = +val || 0;
+    const pakoraMeatKg = Math.max(0, Math.round((rawTotal - liverKg) * 1000) / 1000);
+    const badge = document.querySelector("#intake-pakora-meat-badge");
+    if (badge) {
+      badge.textContent = rawTotal > 0 ? `${pakoraMeatKg} kg` : '— kg';
+    }
+  }
+
+  function syncChickenPartAdded(idx, val, unit) {
+    idx = +idx;
+    if (isNaN(idx) || idx < 0) return;
+    const dateStr = S.selectedDate;
+    if (!S.dailyStock[dateStr]) {
+      S.dailyStock[dateStr] = getStockLinesForDate(dateStr);
+    }
+    const lines = S.dailyStock[dateStr];
+    if (lines && lines[idx]) {
+      if (unit) lines[idx].added_unit = unit;
+      updateStockLineValue(idx, 'added_val', val);
+
+      // Sync input field inside the item row below if present
+      const lineEl = document.querySelector(`#stock-row-${idx}`);
+      if (lineEl) {
+        const inputs = lineEl.querySelectorAll('input[type="number"]');
+        if (inputs && inputs.length >= 2) {
+          // input[0] is rate or opening, input[1] is added or closing
+          // Let's find the added input specifically
+          const addedInp = lineEl.querySelector('.calc-field:nth-child(2) input') || inputs[1];
+          if (addedInp && addedInp.value !== val) {
+            addedInp.value = val;
+          }
+        }
+      }
+
+      // Update top pakora meat badge if liver was changed
+      if (lines[idx].item_id === "item-chicken-liver") {
+        const closing = getClosingForDate(dateStr);
+        const rawTotal = +closing.raw_chicken_intake_kg || 0;
+        const liverKg = (lines[idx].added_unit === 'g' || lines[idx].added_unit === 'grams') ? (+val || 0)/1000 : (+val || 0);
+        const pakoraMeatKg = Math.max(0, Math.round((rawTotal - liverKg) * 1000) / 1000);
+        const badge = document.querySelector("#intake-pakora-meat-badge");
+        if (badge) {
+          badge.textContent = rawTotal > 0 ? `${pakoraMeatKg} kg` : '— kg';
+        }
+      }
+    }
   }
 
   // 2. Edit Expense Modal (Direct Edit Support)
@@ -2423,6 +2580,8 @@
     toggleChickenBreakdown,
     recalcPakoraKg,
     applyChickenBreakdownToStock,
+    updateChickenIntake,
+    syncChickenPartAdded,
     saveExpenseEdit,
     openEditItemModal,
     openAddItemModal,

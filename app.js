@@ -816,64 +816,116 @@
                 </div>
 
                 ${isChickenCat ? `
-                  <!-- Clean Mobile Chicken Intake Card -->
+                  <!-- Enhanced Morning Raw Chicken Breakdown Card -->
                   <div class="intake-card">
                     <div class="intake-header">
-                      <span class="intake-title">🍗 Morning Raw Chicken</span>
-                      <span class="intake-tag">Intake</span>
+                      <span class="intake-title">🍗 Morning Raw Chicken Breakdown</span>
+                      <span class="intake-tag">Auto-Syncs With Stock</span>
                     </div>
 
-                    <div class="intake-grid-2">
+                    <!-- Row 1: Total Raw Chicken & Pakora Chicken with KG / Grams Unit Selectors -->
+                    <div class="intake-grid-2" style="margin-bottom: 8px;">
                       <div class="intake-field">
-                        <label>Total Raw Chicken</label>
-                        <div class="input-with-unit">
-                          <input type="number" step="any" min="0" id="intake-total-chicken"
-                            value="${closing.raw_chicken_intake_kg || ''}"
-                            placeholder="0"
-                            oninput="window.fcp.updateChickenIntake('raw_chicken_intake_kg', this.value)">
-                          <span>kg</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                          <label style="margin-bottom:0; font-size:11px; font-weight:700;">Total Raw Chicken</label>
+                          <select class="field-unit-select" id="intake-total-unit"
+                            onchange="window.fcp.updateChickenIntakeUnit('raw_chicken_intake_unit', this.value)">
+                            <option value="kg" ${(closing.raw_chicken_intake_unit || 'kg') === 'kg' ? 'selected' : ''}>kg</option>
+                            <option value="g" ${(closing.raw_chicken_intake_unit || 'kg') === 'g' || closing.raw_chicken_intake_unit === 'grams' ? 'selected' : ''}>grams</option>
+                          </select>
+                        </div>
+                        <input type="number" step="any" min="0" id="intake-total-chicken"
+                          value="${closing.raw_chicken_intake_val !== undefined && closing.raw_chicken_intake_val !== '' ? closing.raw_chicken_intake_val : (closing.raw_chicken_intake_kg || '')}"
+                          placeholder="e.g. 12"
+                          style="width:100%; border:1px solid #cbd5e1; border-radius:7px; padding:7px 8px; font-size:14px; font-weight:800; background:#fff;"
+                          oninput="window.fcp.updateChickenIntakeVal('raw_chicken_intake_val', this.value)">
+                      </div>
+
+                      <div class="intake-field">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                          <label style="margin-bottom:0; font-size:11px; font-weight:700;">Pakora Chicken</label>
+                          <select class="field-unit-select" id="intake-pakora-unit"
+                            onchange="window.fcp.updateChickenIntakeUnit('raw_pakora_meat_unit', this.value)">
+                            <option value="kg" ${(closing.raw_pakora_meat_unit || 'kg') === 'kg' ? 'selected' : ''}>kg</option>
+                            <option value="g" ${(closing.raw_pakora_meat_unit || 'kg') === 'g' || closing.raw_pakora_meat_unit === 'grams' ? 'selected' : ''}>grams</option>
+                          </select>
+                        </div>
+                        <input type="number" step="any" min="0" id="intake-pakora-meat-input"
+                          value="${closing.raw_pakora_meat_val !== undefined && closing.raw_pakora_meat_val !== '' ? closing.raw_pakora_meat_val : (closing.raw_pakora_meat_kg || '')}"
+                          placeholder="0"
+                          style="width:100%; border:1.5px solid #fb923c; border-radius:7px; padding:7px 8px; font-size:14px; font-weight:800; background:#fff; color:#ea580c;"
+                          oninput="window.fcp.updateChickenIntakeVal('raw_pakora_meat_val', this.value, true)">
+                      </div>
+                    </div>
+
+                    <!-- Row 2: Cuts Pieces & Weight Grid -->
+                    <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 6px;">
+                      <!-- Wings: Pieces + Weight -->
+                      <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                        <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:3px;">🍗 Wings</div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                          <div>
+                            <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                            <input type="number" step="1" min="0" value="${wingsItem?.added_val || closing.wings_pieces || ''}" placeholder="0"
+                              id="intake-wings-pcs"
+                              oninput="window.fcp.updateChickenIntakeCut('wings_pieces', this.value, ${wingsIdx})">
+                          </div>
+                          <div>
+                            <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                            <input type="number" step="any" min="0" value="${closing.wings_weight || ''}" placeholder="0"
+                              id="intake-wings-wt"
+                              oninput="window.fcp.updateChickenIntakeCut('wings_weight', this.value)">
+                          </div>
                         </div>
                       </div>
 
-                      <div class="intake-field">
-                        <label>Pakora Chicken</label>
-                        <div class="input-with-unit">
-                          <input type="number" step="any" min="0" id="intake-pakora-meat-input"
-                            value="${closing.raw_pakora_meat_kg !== undefined && closing.raw_pakora_meat_kg !== '' ? closing.raw_pakora_meat_kg : (closing.raw_chicken_intake_kg ? Math.max(0, Math.round((+closing.raw_chicken_intake_kg - (((liverItem ? liverItem.added_val : 0))/1000))*1000)/1000) : '')}"
-                            placeholder="0"
-                            oninput="window.fcp.updateChickenIntake('raw_pakora_meat_kg', this.value)">
-                          <span>kg</span>
+                      <!-- Full Joint: Pieces + Weight -->
+                      <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                        <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:3px;">🍗 Full Joint</div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                          <div>
+                            <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                            <input type="number" step="1" min="0" value="${fullJointItem?.added_val || closing.full_joint_pieces || ''}" placeholder="0"
+                              id="intake-full-joint-pcs"
+                              oninput="window.fcp.updateChickenIntakeCut('full_joint_pieces', this.value, ${fullJointIdx})">
+                          </div>
+                          <div>
+                            <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                            <input type="number" step="any" min="0" value="${closing.full_joint_weight || ''}" placeholder="0"
+                              id="intake-full-joint-wt"
+                              oninput="window.fcp.updateChickenIntakeCut('full_joint_weight', this.value)">
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div class="intake-cuts-grid">
-                      <div class="cut-item">
-                        <label>Wings (pcs)</label>
-                        <input type="number" step="1" min="0" value="${wingsItem?.added_val || ''}" placeholder="0"
-                          id="intake-wings"
-                          oninput="window.fcp.syncChickenPartAdded(${wingsIdx}, this.value, 'pieces')">
+                      <!-- Half Joint: Pieces + Weight -->
+                      <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                        <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:3px;">🍗 Half Joint</div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                          <div>
+                            <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                            <input type="number" step="1" min="0" value="${halfJointItem?.added_val || closing.half_joint_pieces || ''}" placeholder="0"
+                              id="intake-half-joint-pcs"
+                              oninput="window.fcp.updateChickenIntakeCut('half_joint_pieces', this.value, ${halfJointIdx})">
+                          </div>
+                          <div>
+                            <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                            <input type="number" step="any" min="0" value="${closing.half_joint_weight || ''}" placeholder="0"
+                              id="intake-half-joint-wt"
+                              oninput="window.fcp.updateChickenIntakeCut('half_joint_weight', this.value)">
+                          </div>
+                        </div>
                       </div>
 
-                      <div class="cut-item">
-                        <label>Full Joint</label>
-                        <input type="number" step="1" min="0" value="${fullJointItem?.added_val || ''}" placeholder="0"
-                          id="intake-full-joint"
-                          oninput="window.fcp.syncChickenPartAdded(${fullJointIdx}, this.value, 'pieces')">
-                      </div>
-
-                      <div class="cut-item">
-                        <label>Half Joint</label>
-                        <input type="number" step="1" min="0" value="${halfJointItem?.added_val || ''}" placeholder="0"
-                          id="intake-half-joint"
-                          oninput="window.fcp.syncChickenPartAdded(${halfJointIdx}, this.value, 'pieces')">
-                      </div>
-
-                      <div class="cut-item">
-                        <label>Liver (g)</label>
-                        <input type="number" step="any" min="0" value="${liverItem?.added_val || ''}" placeholder="0"
-                          id="intake-liver"
-                          oninput="window.fcp.syncChickenPartAdded(${liverIdx}, this.value, 'g')">
+                      <!-- Liver: Weight -->
+                      <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                        <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:3px;">🍗 Liver</div>
+                        <div>
+                          <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (grams)</span>
+                          <input type="number" step="any" min="0" value="${liverItem?.added_val || closing.liver_val || ''}" placeholder="0"
+                            id="intake-liver-wt"
+                            oninput="window.fcp.updateChickenIntakeCut('liver_val', this.value, ${liverIdx})">
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1442,58 +1494,104 @@
 
             <div class="form-group">
               <label>Quantity / Weight</label>
-              <input type="text" id="expQty" placeholder="e.g. 12 kg total chicken">
+              <input type="text" id="expQty" placeholder="e.g. 12 kg raw chicken">
             </div>
 
             <!-- CHICKEN BREAKDOWN PANEL — shows only for Raw Chicken Meat -->
-            <div id="chicken-breakdown-panel" style="display:none; margin:14px 0; background:#fff7ed; border:2px dashed #fb923c; border-radius:12px; padding:14px;">
-              <div style="font-size:13px; font-weight:800; color:#ea580c; margin-bottom:4px;">🐔 Chicken Breakdown — What came from this purchase?</div>
-              <div style="font-size:12px; color:#9a3412; margin-bottom:12px;">Enter how many of each you got. Pakora meat is auto-calculated.</div>
+            <div id="chicken-breakdown-panel" class="intake-card" style="display:none; margin:12px 0;">
+              <div class="intake-header">
+                <span class="intake-title">🍗 Chicken Breakdown (Auto-Syncs With Night Closing)</span>
+                <span class="intake-tag">Live Sync</span>
+              </div>
 
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
-                <div>
-                  <label style="font-size:12px; font-weight:700; color:#374151; margin-bottom:4px; display:block;">Total Chicken (kg) *</label>
-                  <input type="number" step="any" min="0" id="ckn-total-kg" placeholder="e.g. 12"
-                    oninput="window.fcp.recalcPakoraKg()" style="border:1.5px solid #fb923c;">
+              <!-- Row 1: Total Raw Chicken & Pakora Meat with KG / Grams Unit Selectors -->
+              <div class="intake-grid-2" style="margin-bottom: 8px;">
+                <div class="intake-field">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                    <label style="margin-bottom:0; font-size:11px; font-weight:700;">Total Raw Chicken *</label>
+                    <select class="field-unit-select" id="ckn-total-unit" onchange="window.fcp.recalcExpPakora()">
+                      <option value="kg">kg</option>
+                      <option value="g">grams</option>
+                    </select>
+                  </div>
+                  <input type="number" step="any" min="0" id="ckn-total-val" placeholder="e.g. 12"
+                    oninput="window.fcp.recalcExpPakora()" style="border:1.5px solid #fb923c;">
                 </div>
-                <div>
-                  <label style="font-size:12px; font-weight:700; color:#374151; margin-bottom:4px; display:block;">Liver (grams)</label>
-                  <input type="number" step="any" min="0" id="ckn-liver-g" placeholder="e.g. 400"
-                    oninput="window.fcp.recalcPakoraKg()" style="border:1.5px solid #fb923c;">
+
+                <div class="intake-field">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                    <label style="margin-bottom:0; font-size:11px; font-weight:700;">Pakora Chicken Meat</label>
+                    <select class="field-unit-select" id="ckn-pakora-unit" onchange="window.fcp.recalcExpPakora()">
+                      <option value="kg">kg</option>
+                      <option value="g">grams</option>
+                    </select>
+                  </div>
+                  <input type="number" step="any" min="0" id="ckn-pakora-val" placeholder="0"
+                    style="border:1.5px solid #fb923c; color:#ea580c; font-weight:800;">
                 </div>
               </div>
 
-              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px;">
-                <div>
-                  <label style="font-size:12px; font-weight:700; color:#374151; margin-bottom:4px; display:block;">Wings (pcs)</label>
-                  <input type="number" step="1" min="0" id="ckn-wings" placeholder="e.g. 20"
-                    style="border:1.5px solid #fb923c;">
+              <!-- Cuts Grid: Wings, Full Joint, Half Joint, Liver -->
+              <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 8px;">
+                <!-- Wings -->
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Wings</div>
+                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                      <input type="number" step="1" min="0" id="ckn-wings-pcs" placeholder="pcs" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                      <input type="number" step="any" min="0" id="ckn-wings-wt" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label style="font-size:12px; font-weight:700; color:#374151; margin-bottom:4px; display:block;">Full Joint (pcs)</label>
-                  <input type="number" step="1" min="0" id="ckn-full-joint" placeholder="e.g. 12"
-                    style="border:1.5px solid #fb923c;">
+
+                <!-- Full Joint -->
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Full Joint</div>
+                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                      <input type="number" step="1" min="0" id="ckn-full-joint-pcs" placeholder="pcs" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                      <input type="number" step="any" min="0" id="ckn-full-joint-wt" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label style="font-size:12px; font-weight:700; color:#374151; margin-bottom:4px; display:block;">Half Joint (pcs)</label>
-                  <input type="number" step="1" min="0" id="ckn-half-joint" placeholder="e.g. 6"
-                    style="border:1.5px solid #fb923c;">
+
+                <!-- Half Joint -->
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Half Joint</div>
+                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                      <input type="number" step="1" min="0" id="ckn-half-joint-pcs" placeholder="pcs" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                      <input type="number" step="any" min="0" id="ckn-half-joint-wt" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Liver -->
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Liver</div>
+                  <div>
+                    <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (grams)</span>
+                    <input type="number" step="any" min="0" id="ckn-liver-wt" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                  </div>
                 </div>
               </div>
 
-              <div style="background:#fff; border:1px solid #fed7aa; border-radius:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <span style="font-size:12px; color:#64748b; font-weight:600;">🍗 Pakora Meat (auto-calculated):</span>
-                <span id="ckn-pakora-display" style="font-size:16px; font-weight:800; color:#ea580c;">— kg</span>
-              </div>
-
-              <button type="button"
-                style="width:100%; background:#ea580c; color:#fff; border:none; border-radius:10px; padding:11px; font-size:13px; font-weight:800; cursor:pointer;"
+              <button type="button" class="action-btn dark" style="width:100%; padding:8px; font-size:12px;"
                 onclick="window.fcp.applyChickenBreakdownToStock()">
-                ✅ Apply Breakdown → Fill Today's Stock
+                ⚡ Apply Breakdown to Night Closing Now
               </button>
-              <div id="breakdown-applied-msg" style="display:none; font-size:12px; color:#16a34a; font-weight:700; text-align:center; margin-top:8px;">
-                ✔ Applied to today's stock! Check Night Closing.
-              </div>
             </div>
 
             <div class="form-group">
@@ -1539,147 +1637,214 @@
     }
   }
 
-  function recalcPakoraKg() {
-    const totalKg = +document.querySelector("#ckn-total-kg")?.value || 0;
-    const liverG = +document.querySelector("#ckn-liver-g")?.value || 0;
-    const liverKg = liverG / 1000;
-    
-    // Remaining chicken meat for Pakora
-    const remainingKg = Math.max(0, Math.round((totalKg - liverKg) * 1000) / 1000);
-    const disp = document.querySelector("#ckn-pakora-display");
-    if (disp) {
-      disp.textContent = `${remainingKg} kg`;
+  function recalcExpPakora() {
+    const totalVal = +document.querySelector("#ckn-total-val")?.value || 0;
+    const totalUnit = document.querySelector("#ckn-total-unit")?.value || 'kg';
+    const totalG = (totalUnit === 'g' || totalUnit === 'grams') ? totalVal : totalVal * 1000;
+
+    const wingsWt = +document.querySelector("#ckn-wings-wt")?.value || 0;
+    const fullJointWt = +document.querySelector("#ckn-full-joint-wt")?.value || 0;
+    const halfJointWt = +document.querySelector("#ckn-half-joint-wt")?.value || 0;
+    const liverG = +document.querySelector("#ckn-liver-wt")?.value || 0;
+
+    const cutsTotalG = wingsWt + fullJointWt + halfJointWt + liverG;
+    const pakoraG = Math.max(0, totalG - cutsTotalG);
+
+    const pakoraUnit = document.querySelector("#ckn-pakora-unit")?.value || 'kg';
+    const pakoraVal = (pakoraUnit === 'g' || pakoraUnit === 'grams') ? pakoraG : Math.round((pakoraG / 1000) * 1000) / 1000;
+
+    const pakoraInp = document.querySelector("#ckn-pakora-val");
+    if (pakoraInp) {
+      pakoraInp.value = pakoraVal > 0 ? pakoraVal : '';
+    }
+
+    const expQty = document.querySelector("#expQty") || document.querySelector("#editExpQty");
+    if (expQty && totalVal > 0) {
+      expQty.value = `${totalVal} ${totalUnit}`;
     }
   }
 
-  function applyChickenBreakdownToStock() {
-    const dateStr = document.querySelector("#expDate")?.value || S.selectedDate || S.today;
-    if (!S.dailyStock[dateStr]) {
-      S.dailyStock[dateStr] = getStockLinesForDate(dateStr);
-    }
-    const lines = S.dailyStock[dateStr];
-    if (!lines) return;
-
-    const wings = +document.querySelector("#ckn-wings")?.value || 0;
-    const fullJoint = +document.querySelector("#ckn-full-joint")?.value || 0;
-    const halfJoint = +document.querySelector("#ckn-half-joint")?.value || 0;
-    const liverG = +document.querySelector("#ckn-liver-g")?.value || 0;
-    const totalKg = +document.querySelector("#ckn-total-kg")?.value || 0;
-
-    // Apply to daily stock items
-    lines.forEach((line) => {
-      if (line.item_id === "item-chicken-wings" && wings > 0) {
-        line.added_val = wings;
-        line.added_unit = "pieces";
-        line.marinated_added_stock = wings;
-        line.sold_quantity = Math.max(0, (line.opening_stock || 0) + wings - (line.closing_stock || 0));
-        line.total_sales = Math.round(line.sold_quantity * (line.unit_price || 20));
-      } else if (line.item_id === "item-chicken-full-joint" && fullJoint > 0) {
-        line.added_val = fullJoint;
-        line.added_unit = "pieces";
-        line.marinated_added_stock = fullJoint;
-        line.sold_quantity = Math.max(0, (line.opening_stock || 0) + fullJoint - (line.closing_stock || 0));
-        line.total_sales = Math.round(line.sold_quantity * (line.unit_price || 100));
-      } else if (line.item_id === "item-chicken-half-joint" && halfJoint > 0) {
-        line.added_val = halfJoint;
-        line.added_unit = "pieces";
-        line.marinated_added_stock = halfJoint;
-        line.sold_quantity = Math.max(0, (line.opening_stock || 0) + halfJoint - (line.closing_stock || 0));
-        line.total_sales = Math.round(line.sold_quantity * (line.unit_price || 50));
-      } else if (line.item_id === "item-chicken-liver" && liverG > 0) {
-        line.added_val = liverG;
-        line.added_unit = "g";
-        line.marinated_added_stock = liverG / 1000;
-        line.sold_quantity = Math.max(0, Math.round(((line.opening_stock || 0) + (liverG / 1000) - (line.closing_stock || 0)) * 1000) / 1000);
-        line.total_sales = Math.round(line.sold_quantity * (line.unit_price || 400));
-      }
-    });
-
-    saveLocal("dailyStock", S.dailyStock);
-
-    // Also auto-fill description in expense form
-    const descInput = document.querySelector("#expDesc");
-    if (descInput && !descInput.value) {
-      const parts = [];
-      if (totalKg > 0) parts.push(`${totalKg}kg total chicken`);
-      if (wings > 0) parts.push(`${wings} wings`);
-      if (fullJoint > 0) parts.push(`${fullJoint} full joints`);
-      if (halfJoint > 0) parts.push(`${halfJoint} half joints`);
-      if (liverG > 0) parts.push(`${liverG}g liver`);
-      descInput.value = parts.join(", ");
-    }
-
-    const qtyInput = document.querySelector("#expQty");
-    if (qtyInput && !qtyInput.value && totalKg > 0) {
-      qtyInput.value = `${totalKg} kg`;
-    }
-
-    const msg = document.querySelector("#breakdown-applied-msg");
-    if (msg) msg.style.display = "block";
-
-    showToast("✅ Breakdown applied to today's stock!");
-  }
-
-  function updateChickenIntake(field, val) {
-    const dateStr = S.selectedDate;
+  function applyChickenBreakdownToStock(customDate) {
+    const dateStr = customDate || document.querySelector("#expDate")?.value || document.querySelector("#editExpDate")?.value || S.selectedDate || S.today;
     if (!S.closings[dateStr]) {
       S.closings[dateStr] = getClosingForDate(dateStr);
     }
-    S.closings[dateStr][field] = +val || 0;
+    const closing = S.closings[dateStr];
+
+    const totalVal = +document.querySelector("#ckn-total-val")?.value || 0;
+    const totalUnit = document.querySelector("#ckn-total-unit")?.value || 'kg';
+    const totalKg = (totalUnit === 'g' || totalUnit === 'grams') ? totalVal / 1000 : totalVal;
+
+    const pakoraVal = +document.querySelector("#ckn-pakora-val")?.value || 0;
+    const pakoraUnit = document.querySelector("#ckn-pakora-unit")?.value || 'kg';
+    const pakoraKg = (pakoraUnit === 'g' || pakoraUnit === 'grams') ? pakoraVal / 1000 : pakoraVal;
+
+    const wingsPcs = +document.querySelector("#ckn-wings-pcs")?.value || 0;
+    const wingsWt = +document.querySelector("#ckn-wings-wt")?.value || 0;
+
+    const fullJointPcs = +document.querySelector("#ckn-full-joint-pcs")?.value || 0;
+    const fullJointWt = +document.querySelector("#ckn-full-joint-wt")?.value || 0;
+
+    const halfJointPcs = +document.querySelector("#ckn-half-joint-pcs")?.value || 0;
+    const halfJointWt = +document.querySelector("#ckn-half-joint-wt")?.value || 0;
+
+    const liverG = +document.querySelector("#ckn-liver-wt")?.value || 0;
+
+    // Save into closing state
+    closing.raw_chicken_intake_val = totalVal;
+    closing.raw_chicken_intake_unit = totalUnit;
+    closing.raw_chicken_intake_kg = totalKg;
+
+    closing.raw_pakora_meat_val = pakoraVal;
+    closing.raw_pakora_meat_unit = pakoraUnit;
+    closing.raw_pakora_meat_kg = pakoraKg;
+
+    closing.wings_pieces = wingsPcs;
+    closing.wings_weight = wingsWt;
+
+    closing.full_joint_pieces = fullJointPcs;
+    closing.full_joint_weight = fullJointWt;
+
+    closing.half_joint_pieces = halfJointPcs;
+    closing.half_joint_weight = halfJointWt;
+
+    closing.liver_val = liverG;
+    closing.liver_unit = 'g';
+
     saveLocal("closings", S.closings);
 
-    // Auto-update pakora meat input if raw_chicken_intake_kg was changed
-    if (field === "raw_chicken_intake_kg") {
-      const liverLine = (S.dailyStock[dateStr] || []).find((l) => l.item_id === "item-chicken-liver");
-      const liverKg = liverLine ? ((liverLine.added_unit === 'g' || liverLine.added_unit === 'grams') ? (+liverLine.added_val || 0)/1000 : (+liverLine.added_val || 0)) : 0;
-      const rawTotal = +val || 0;
-      const pakoraMeatKg = Math.max(0, Math.round((rawTotal - liverKg) * 1000) / 1000);
-      const inp = document.querySelector("#intake-pakora-meat-input");
-      if (inp) {
-        inp.value = rawTotal > 0 ? pakoraMeatKg : '';
-        S.closings[dateStr].raw_pakora_meat_kg = rawTotal > 0 ? pakoraMeatKg : 0;
-        saveLocal("closings", S.closings);
-      }
-    }
-  }
-
-  function syncChickenPartAdded(idx, val, unit) {
-    idx = +idx;
-    if (isNaN(idx) || idx < 0) return;
-    const dateStr = S.selectedDate;
+    // Sync to dailyStock
     if (!S.dailyStock[dateStr]) {
       S.dailyStock[dateStr] = getStockLinesForDate(dateStr);
     }
     const lines = S.dailyStock[dateStr];
-    if (lines && lines[idx]) {
-      if (unit) lines[idx].added_unit = unit;
-      updateStockLineValue(idx, 'added_val', val);
+    if (lines) {
+      lines.forEach((line, idx) => {
+        if (line.item_id === "item-chicken-wings" && wingsPcs > 0) {
+          line.added_unit = "pieces";
+          updateStockLineValue(idx, 'added_val', wingsPcs);
+        } else if (line.item_id === "item-chicken-full-joint" && fullJointPcs > 0) {
+          line.added_unit = "pieces";
+          updateStockLineValue(idx, 'added_val', fullJointPcs);
+        } else if (line.item_id === "item-chicken-half-joint" && halfJointPcs > 0) {
+          line.added_unit = "pieces";
+          updateStockLineValue(idx, 'added_val', halfJointPcs);
+        } else if (line.item_id === "item-chicken-liver" && liverG > 0) {
+          line.added_unit = "g";
+          updateStockLineValue(idx, 'added_val', liverG);
+        }
+      });
+      saveLocal("dailyStock", S.dailyStock);
+    }
 
-      // Sync input field inside the item row below if present
-      const lineEl = document.querySelector(`#stock-row-${idx}`);
-      if (lineEl) {
-        const inputs = lineEl.querySelectorAll('input[type="number"]');
-        if (inputs && inputs.length >= 2) {
-          const addedInp = lineEl.querySelector('.calc-field:nth-child(2) input') || inputs[1];
+    // Auto-fill description in expense form
+    const descInput = document.querySelector("#expDesc") || document.querySelector("#editExpDesc");
+    if (descInput && !descInput.value) {
+      const parts = [];
+      if (totalVal > 0) parts.push(`${totalVal}${totalUnit} raw chicken`);
+      if (wingsPcs > 0) parts.push(`${wingsPcs} wings (${wingsWt}g)`);
+      if (fullJointPcs > 0) parts.push(`${fullJointPcs} full joints (${fullJointWt}g)`);
+      if (halfJointPcs > 0) parts.push(`${halfJointPcs} half joints (${halfJointWt}g)`);
+      if (liverG > 0) parts.push(`${liverG}g liver`);
+      if (pakoraVal > 0) parts.push(`${pakoraVal}${pakoraUnit} pakora meat`);
+      descInput.value = parts.join(", ");
+    }
+
+    showToast("✅ Chicken breakdown saved & synced to Night Closing!");
+  }
+
+  function recalcChickenPakora(dateStr, isManualPakoraEdit = false) {
+    dateStr = dateStr || S.selectedDate || S.today;
+    if (!S.closings[dateStr]) {
+      S.closings[dateStr] = getClosingForDate(dateStr);
+    }
+    const closing = S.closings[dateStr];
+
+    const totalVal = +closing.raw_chicken_intake_val || 0;
+    const totalUnit = closing.raw_chicken_intake_unit || 'kg';
+    const totalGrams = (totalUnit === 'g' || totalUnit === 'grams') ? totalVal : totalVal * 1000;
+    closing.raw_chicken_intake_kg = Math.round((totalGrams / 1000) * 1000) / 1000;
+
+    const wingsWt = +closing.wings_weight || 0;
+    const fullJointWt = +closing.full_joint_weight || 0;
+    const halfJointWt = +closing.half_joint_weight || 0;
+    const liverG = +closing.liver_val || 0;
+
+    const cutsTotalG = wingsWt + fullJointWt + halfJointWt + liverG;
+    const pakoraGrams = Math.max(0, totalGrams - cutsTotalG);
+    const pakoraUnit = closing.raw_pakora_meat_unit || 'kg';
+
+    if (!isManualPakoraEdit) {
+      const pakoraVal = (pakoraUnit === 'g' || pakoraUnit === 'grams') ? pakoraGrams : Math.round((pakoraGrams / 1000) * 1000) / 1000;
+      closing.raw_pakora_meat_val = pakoraVal;
+      closing.raw_pakora_meat_kg = Math.round((pakoraGrams / 1000) * 1000) / 1000;
+
+      const inp = document.querySelector("#intake-pakora-meat-input");
+      if (inp) {
+        inp.value = pakoraVal > 0 ? pakoraVal : '';
+      }
+    } else {
+      const pakoraVal = +closing.raw_pakora_meat_val || 0;
+      closing.raw_pakora_meat_kg = (pakoraUnit === 'g' || pakoraUnit === 'grams') ? pakoraVal / 1000 : pakoraVal;
+    }
+
+    saveLocal("closings", S.closings);
+  }
+
+  function updateChickenIntakeVal(field, val, isManualPakora = false) {
+    const dateStr = S.selectedDate || S.today;
+    if (!S.closings[dateStr]) {
+      S.closings[dateStr] = getClosingForDate(dateStr);
+    }
+    S.closings[dateStr][field] = val;
+    recalcChickenPakora(dateStr, isManualPakora);
+  }
+
+  function updateChickenIntakeUnit(field, unit) {
+    const dateStr = S.selectedDate || S.today;
+    if (!S.closings[dateStr]) {
+      S.closings[dateStr] = getClosingForDate(dateStr);
+    }
+    S.closings[dateStr][field] = unit;
+    recalcChickenPakora(dateStr, false);
+  }
+
+  function updateChickenIntakeCut(field, val, stockIdx) {
+    const dateStr = S.selectedDate || S.today;
+    if (!S.closings[dateStr]) {
+      S.closings[dateStr] = getClosingForDate(dateStr);
+    }
+    S.closings[dateStr][field] = val;
+    saveLocal("closings", S.closings);
+
+    // If piece count or liver weight, sync to stock line
+    if (stockIdx !== undefined && stockIdx !== null && stockIdx >= 0) {
+      if (!S.dailyStock[dateStr]) {
+        S.dailyStock[dateStr] = getStockLinesForDate(dateStr);
+      }
+      const lines = S.dailyStock[dateStr];
+      if (lines && lines[stockIdx]) {
+        if (field === 'liver_val') {
+          lines[stockIdx].added_unit = 'g';
+        } else {
+          lines[stockIdx].added_unit = 'pieces';
+        }
+        updateStockLineValue(stockIdx, 'added_val', val);
+
+        // Sync corresponding input in the stock row below if in DOM
+        const lineEl = document.querySelector(`#stock-row-${stockIdx}`);
+        if (lineEl) {
+          const addedInp = lineEl.querySelector('.calc-field:nth-child(2) input');
           if (addedInp && addedInp.value !== val) {
             addedInp.value = val;
           }
         }
       }
+    }
 
-      // Update top pakora meat input if liver was changed
-      if (lines[idx].item_id === "item-chicken-liver") {
-        const closing = getClosingForDate(dateStr);
-        const rawTotal = +closing.raw_chicken_intake_kg || 0;
-        const liverKg = (lines[idx].added_unit === 'g' || lines[idx].added_unit === 'grams') ? (+val || 0)/1000 : (+val || 0);
-        const pakoraMeatKg = Math.max(0, Math.round((rawTotal - liverKg) * 1000) / 1000);
-        const inp = document.querySelector("#intake-pakora-meat-input");
-        if (inp) {
-          inp.value = rawTotal > 0 ? pakoraMeatKg : '';
-          S.closings[dateStr].raw_pakora_meat_kg = rawTotal > 0 ? pakoraMeatKg : 0;
-          saveLocal("closings", S.closings);
-        }
-      }
+    // If cut weight changed, recalculate remaining pakora meat
+    if (field.includes('weight') || field === 'liver_val') {
+      recalcChickenPakora(dateStr, false);
     }
   }
 
@@ -1687,6 +1852,10 @@
   function openEditExpenseModal(expId) {
     const exp = (S.expenses || []).find((e) => e.id === expId);
     if (!exp) return;
+
+    const dateStr = exp.expense_date || S.today;
+    const closing = getClosingForDate(dateStr);
+    const isChicken = exp.category === "Raw Chicken Meat";
 
     const modalEl = document.querySelector("#modal");
     modalEl.innerHTML = `
@@ -1699,7 +1868,7 @@
           <form onsubmit="window.fcp.saveExpenseEdit(event, '${exp.id}')">
             <div class="form-group">
               <label>Expense Category *</label>
-              <select id="editExpCat" required>
+              <select id="editExpCat" required onchange="window.fcp.toggleChickenBreakdown(this.value)">
                 ${EXPENSE_CATEGORIES.map(c => `<option value="${c}" ${exp.category === c ? "selected" : ""}>${c}</option>`).join("")}
               </select>
             </div>
@@ -1710,8 +1879,99 @@
             </div>
 
             <div class="form-group">
-              <label>Quantity / Weight (e.g. 15 kg chicken, 2 cans oil)</label>
+              <label>Quantity / Weight</label>
               <input type="text" id="editExpQty" value="${esc(exp.quantity || "")}" placeholder="e.g. 15 kg raw chicken">
+            </div>
+
+            <!-- CHICKEN BREAKDOWN PANEL IN EDIT MODAL -->
+            <div id="chicken-breakdown-panel" class="intake-card" style="display:${isChicken ? 'block' : 'none'}; margin:12px 0;">
+              <div class="intake-header">
+                <span class="intake-title">🍗 Chicken Breakdown</span>
+                <span class="intake-tag">Live Sync</span>
+              </div>
+
+              <div class="intake-grid-2" style="margin-bottom: 8px;">
+                <div class="intake-field">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                    <label style="margin-bottom:0; font-size:11px; font-weight:700;">Total Raw Chicken</label>
+                    <select class="field-unit-select" id="ckn-total-unit" onchange="window.fcp.recalcExpPakora()">
+                      <option value="kg" ${(closing.raw_chicken_intake_unit || 'kg') === 'kg' ? 'selected' : ''}>kg</option>
+                      <option value="g" ${(closing.raw_chicken_intake_unit || 'kg') === 'g' || closing.raw_chicken_intake_unit === 'grams' ? 'selected' : ''}>grams</option>
+                    </select>
+                  </div>
+                  <input type="number" step="any" min="0" id="ckn-total-val" value="${closing.raw_chicken_intake_val || closing.raw_chicken_intake_kg || ''}" placeholder="e.g. 12"
+                    oninput="window.fcp.recalcExpPakora()" style="border:1.5px solid #fb923c;">
+                </div>
+
+                <div class="intake-field">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                    <label style="margin-bottom:0; font-size:11px; font-weight:700;">Pakora Chicken Meat</label>
+                    <select class="field-unit-select" id="ckn-pakora-unit" onchange="window.fcp.recalcExpPakora()">
+                      <option value="kg" ${(closing.raw_pakora_meat_unit || 'kg') === 'kg' ? 'selected' : ''}>kg</option>
+                      <option value="g" ${(closing.raw_pakora_meat_unit || 'kg') === 'g' || closing.raw_pakora_meat_unit === 'grams' ? 'selected' : ''}>grams</option>
+                    </select>
+                  </div>
+                  <input type="number" step="any" min="0" id="ckn-pakora-val" value="${closing.raw_pakora_meat_val || closing.raw_pakora_meat_kg || ''}" placeholder="0"
+                    style="border:1.5px solid #fb923c; color:#ea580c; font-weight:800;">
+                </div>
+              </div>
+
+              <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 8px;">
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Wings</div>
+                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                      <input type="number" step="1" min="0" id="ckn-wings-pcs" value="${closing.wings_pieces || ''}" placeholder="pcs" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                      <input type="number" step="any" min="0" id="ckn-wings-wt" value="${closing.wings_weight || ''}" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Full Joint</div>
+                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                      <input type="number" step="1" min="0" id="ckn-full-joint-pcs" value="${closing.full_joint_pieces || ''}" placeholder="pcs" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                      <input type="number" step="any" min="0" id="ckn-full-joint-wt" value="${closing.full_joint_weight || ''}" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Half Joint</div>
+                  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Pieces</span>
+                      <input type="number" step="1" min="0" id="ckn-half-joint-pcs" value="${closing.half_joint_pieces || ''}" placeholder="pcs" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                    <div>
+                      <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (g)</span>
+                      <input type="number" step="any" min="0" id="ckn-half-joint-wt" value="${closing.half_joint_weight || ''}" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="cut-item" style="text-align:left; padding:6px 8px;">
+                  <div style="font-size:10px; font-weight:700; color:#374151; margin-bottom:2px;">🍗 Liver</div>
+                  <div>
+                    <span style="font-size:9px; color:#64748b; font-weight:600;">Weight (grams)</span>
+                    <input type="number" step="any" min="0" id="ckn-liver-wt" value="${closing.liver_val || ''}" placeholder="g" oninput="window.fcp.recalcExpPakora()">
+                  </div>
+                </div>
+              </div>
+
+              <button type="button" class="action-btn dark" style="width:100%; padding:8px; font-size:12px;"
+                onclick="window.fcp.applyChickenBreakdownToStock('${dateStr}')">
+                ⚡ Apply Breakdown to Night Closing Now
+              </button>
             </div>
 
             <div class="form-group">
@@ -1860,6 +2120,11 @@
     const pay = document.querySelector("#expPayMethod").value || "Cash";
     const desc = document.querySelector("#expDesc").value;
 
+    // Auto-apply chicken breakdown if this is Raw Chicken Meat
+    if (cat === "Raw Chicken Meat") {
+      applyChickenBreakdownToStock(expDate);
+    }
+
     const newExpense = {
       id: "exp-" + Date.now(),
       category: cat,
@@ -1893,6 +2158,11 @@
     const expDate = document.querySelector("#editExpDate").value || S.today;
     const pay = document.querySelector("#expPayMethod").value || "Cash";
     const desc = document.querySelector("#editExpDesc").value;
+
+    // Auto-apply chicken breakdown if this is Raw Chicken Meat
+    if (cat === "Raw Chicken Meat") {
+      applyChickenBreakdownToStock(expDate);
+    }
 
     const idx = (S.expenses || []).findIndex((exp) => exp.id === id);
     if (idx !== -1) {
@@ -2543,10 +2813,15 @@
     openAddExpenseModal,
     openEditExpenseModal,
     toggleChickenBreakdown,
-    recalcPakoraKg,
+    recalcPakoraKg: recalcExpPakora,
+    recalcExpPakora,
     applyChickenBreakdownToStock,
     updateChickenIntake,
     syncChickenPartAdded,
+    updateChickenIntakeVal,
+    updateChickenIntakeUnit,
+    updateChickenIntakeCut,
+    recalcChickenPakora,
     saveExpenseEdit,
     openEditItemModal,
     openAddItemModal,

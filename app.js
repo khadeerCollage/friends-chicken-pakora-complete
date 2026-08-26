@@ -165,6 +165,12 @@
     "Other Miscellaneous"
   ];
 
+  // --- Hardcoded Secure Auth Credentials ---
+  const AUTH_CREDENTIALS = {
+    phone: "7702431524",
+    pass: "Khamar7890?"
+  };
+
   // --- Helper Functions ---
   const getTodayDate = () => {
     const d = new Date();
@@ -175,6 +181,13 @@
   const getPreviousDate = (baseDateStr) => {
     const d = new Date((baseDateStr || getTodayDate()) + "T00:00:00");
     d.setDate(d.getDate() - 1);
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  };
+
+  const getNextDate = (baseDateStr) => {
+    const d = new Date((baseDateStr || getTodayDate()) + "T00:00:00");
+    d.setDate(d.getDate() + 1);
     const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 10);
   };
@@ -314,23 +327,6 @@
     }, 2500);
   }
 
-  // --- Application State ---
-  const S = {
-    page: location.hash.slice(1) || "dashboard",
-    today: getTodayDate(),
-    selectedDate: getTodayDate(),
-    menu: [],
-    closings: {},       // Keyed by "YYYY-MM-DD"
-    dailyStock: {},     // Keyed by "YYYY-MM-DD" -> array of stock lines
-    expenses: [],       // List of expense objects
-    shopName: "Friends Chicken pokodi / Riyan Fast Foods",
-    masterDailyWage: 600,
-    activeMenuCategory: "all",
-    activeExpenseCategory: "all",
-    reportRange: "today",
-    loading: true
-  };
-
   // --- Local Storage Helpers ---
   function loadLocal(key, defaultVal) {
     try {
@@ -348,6 +344,26 @@
       console.error("Local storage save error", e);
     }
   }
+
+  const authSession = loadLocal("auth_session", null);
+
+  // --- Application State ---
+  const S = {
+    isAuthenticated: !!(authSession && authSession.is_authenticated),
+    page: location.hash.slice(1) || "dashboard",
+    today: getTodayDate(),
+    selectedDate: getTodayDate(),
+    menu: [],
+    closings: {},       // Keyed by "YYYY-MM-DD"
+    dailyStock: {},     // Keyed by "YYYY-MM-DD" -> array of stock lines
+    expenses: [],       // List of expense objects
+    shopName: "Friends Chicken Pakora / Riyan Fast Foods",
+    masterDailyWage: 600,
+    activeMenuCategory: "all",
+    activeExpenseCategory: "all",
+    reportRange: "today",
+    loading: true
+  };
 
   // --- Data Initialization & Supabase Sync ---
   async function initData() {
@@ -485,43 +501,101 @@
     };
   }
 
+  function syncClosingToNextDay(dateStr) {
+    const nextDate = getNextDate(dateStr);
+    const currLines = S.dailyStock[dateStr] || [];
+    if (currLines.length === 0) return;
+
+    const closingMap = {};
+    const unitMap = {};
+    currLines.forEach((l) => {
+      const val = l.closing_val !== undefined && l.closing_val !== '' ? +l.closing_val : (+l.closing_stock || 0);
+      closingMap[l.item_id] = val;
+      unitMap[l.item_id] = l.closing_unit || l.item_unit || 'kg';
+    });
+
+    if (S.dailyStock[nextDate] && (!S.closings[nextDate] || !S.closings[nextDate].is_closed)) {
+      S.dailyStock[nextDate].forEach((nl) => {
+        if (closingMap[nl.item_id] !== undefined) {
+          nl.opening_val = closingMap[nl.item_id];
+          nl.opening_unit = unitMap[nl.item_id] || nl.item_unit;
+
+          const itemUnitStr = (nl.item_unit || "kg").toLowerCase();
+          const isWeight = itemUnitStr === "kg" || itemUnitStr === "grams" || itemUnitStr === "g";
+          const isEggs = itemUnitStr === "eggs" || itemUnitStr === "egg" || nl.item_id === "item-eggs-stock";
+          const baseUnit = isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr);
+
+          const openNorm = normalizeToBase(nl.opening_val, nl.opening_unit || baseUnit, baseUnit);
+          const addedNorm = normalizeToBase(nl.added_val, nl.added_unit || baseUnit, baseUnit);
+          const closingNorm = normalizeToBase(nl.closing_val, nl.closing_unit || baseUnit, baseUnit);
+          const soldNorm = Math.max(0, Math.round((openNorm + addedNorm - closingNorm) * 1000) / 1000);
+
+          nl.sold_quantity = soldNorm;
+          nl.opening_stock = openNorm;
+          nl.marinated_added_stock = addedNorm;
+          nl.closing_stock = closingNorm;
+          nl.total_sales = Math.round(soldNorm * (+nl.unit_price || 0));
+        }
+      });
+      saveLocal("dailyStock", S.dailyStock);
+    }
+  }
+
   function getStockLinesForDate(dateStr) {
     const menuMap = {};
     (S.menu || []).forEach((m) => { menuMap[m.id] = m; });
+
+    // 1. Auto-carryover from previous day's closing stock!
+    const prevDate = getPreviousDate(dateStr);
+    const prevLines = S.dailyStock[prevDate] || [];
+    const prevClosingMap = {};
+    const prevUnitMap = {};
+    prevLines.forEach((l) => {
+      const val = l.closing_val !== undefined && l.closing_val !== '' ? +l.closing_val : (+l.closing_stock || 0);
+      prevClosingMap[l.item_id] = val;
+      prevUnitMap[l.item_id] = l.closing_unit || l.item_unit || 'kg';
+    });
+
+    const isCurrentLocked = S.closings[dateStr] && S.closings[dateStr].is_closed;
 
     if (S.dailyStock[dateStr] && S.dailyStock[dateStr].length > 0) {
       // Filter out legacy egg items and ensure item-eggs-stock exists
       let lines = S.dailyStock[dateStr].filter(l => l && !l.item_id.startsWith("item-omelette-") && l.item_id !== "item-boiled-egg" && !(l.item_id.startsWith("item-egg-") && l.item_id !== "item-eggs-stock"));
       if (!lines.some(l => l.item_id === "item-eggs-stock")) {
-        lines.push(sanitizeStockLine({
+        lines.push({
           item_id: "item-eggs-stock",
           item_name: "Eggs (All Egg Items / Omelettes / Boiled)",
           unit: "eggs",
           unit_price: 20,
           price_note: "₹20 / egg (1 egg = ₹20, 2 eggs = ₹40)",
-          opening_val: 0,
-          opening_unit: "eggs",
+          opening_val: prevClosingMap["item-eggs-stock"] || 0,
+          opening_unit: prevUnitMap["item-eggs-stock"] || "eggs",
           added_val: 0,
           added_unit: "eggs",
           closing_val: 0,
           closing_unit: "eggs"
-        }));
+        });
       }
+
+      // If the current day is not locked, ensure opening stock dynamically matches previous day's closing stock!
+      if (!isCurrentLocked && Object.keys(prevClosingMap).length > 0) {
+        lines.forEach((l) => {
+          if (prevClosingMap[l.item_id] !== undefined) {
+            l.opening_val = prevClosingMap[l.item_id];
+            if (prevUnitMap[l.item_id]) l.opening_unit = prevUnitMap[l.item_id];
+          }
+        });
+      }
+
       S.dailyStock[dateStr] = lines.map((l) => sanitizeStockLine(l, menuMap[l.item_id]));
+      saveLocal("dailyStock", S.dailyStock);
       return S.dailyStock[dateStr];
     }
-
-    // Auto-carryover from previous day's closing stock!
-    const prevDate = getPreviousDate(dateStr);
-    const prevLines = S.dailyStock[prevDate] || [];
-    const prevClosingMap = {};
-    prevLines.forEach((l) => {
-      prevClosingMap[l.item_id] = l.closing_stock || 0;
-    });
 
     const activeItems = (S.menu || DEFAULT_MENU_ITEMS).filter((m) => m.is_active !== false);
     const generated = activeItems.map((item) => {
       const opening = prevClosingMap[item.id] || 0;
+      const unit = prevUnitMap[item.id] || item.unit;
       return sanitizeStockLine({
         item_id: item.id,
         item_name: item.name,
@@ -529,6 +603,7 @@
         unit_price: item.price,
         price_note: item.price_note,
         opening_val: opening,
+        opening_unit: unit,
         opening_stock: opening,
         added_val: 0,
         closing_val: 0
@@ -631,9 +706,12 @@
           <div class="brand-title">🍗 Friends Chicken Pakora</div>
           <div class="brand-sub">Daily Tracker · ${formatDisplayDate(today)}</div>
         </div>
-        <span class="badge-status ${db ? "badge-online" : "badge-demo"}">
-          ${db ? "● Online" : "● Offline"}
-        </span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span class="badge-status ${db ? "badge-online" : "badge-demo"}">
+            ${db ? "● Online" : "● Offline"}
+          </span>
+          <button class="logout-btn" onclick="window.fcp.logout()" title="Logout">🚪 Logout</button>
+        </div>
       </div>
 
       <!-- Quick Closing Callout -->
@@ -2341,6 +2419,10 @@
 
       saveLocal("dailyStock", S.dailyStock);
 
+      if (field === 'closing_val') {
+        syncClosingToNextDay(dateStr);
+      }
+
       // In-place update of badges without re-rendering the whole page!
       const soldBadge = document.querySelector(`#sold-badge-${idx}`);
       if (soldBadge) {
@@ -2384,6 +2466,10 @@
       lines[idx].total_sales = Math.round(itemSales);
 
       saveLocal("dailyStock", S.dailyStock);
+
+      if (unitField === 'closing_unit') {
+        syncClosingToNextDay(dateStr);
+      }
 
       const soldBadge = document.querySelector(`#sold-badge-${idx}`);
       if (soldBadge) {
@@ -2737,17 +2823,84 @@
     render();
   }
 
+  // --- Authentication Views & Handlers ---
+  function renderLogin() {
+    return `
+      <div class="login-wrap">
+        <div class="login-card">
+          <div class="login-brand">
+            <div class="login-brand-icon">🍗</div>
+            <div class="login-title">Friends Chicken Pakora</div>
+            <div class="login-subtitle">Riyan Fast Foods · Admin & Staff Access</div>
+          </div>
+
+          <form class="login-form" onsubmit="window.fcp.handleLogin(event)">
+            <div class="form-group">
+              <label>Mobile Number</label>
+              <input type="tel" id="loginPhone" class="login-input" placeholder="e.g. 7702431524" maxlength="10" required autofocus autocomplete="tel">
+            </div>
+
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="loginPass" class="login-input" placeholder="Enter Password" required autocomplete="current-password">
+            </div>
+
+            <button type="submit" class="login-btn">
+              🔒 Login to Dashboard
+            </button>
+          </form>
+
+          <div class="login-footer">
+            Friends Chicken Pakora & Fast Foods POS System
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function handleLogin(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const phone = document.querySelector("#loginPhone")?.value?.trim();
+    const pass = document.querySelector("#loginPass")?.value?.trim();
+
+    if (phone === AUTH_CREDENTIALS.phone && pass === AUTH_CREDENTIALS.pass) {
+      S.isAuthenticated = true;
+      saveLocal("auth_session", {
+        is_authenticated: true,
+        phone: phone,
+        login_at: new Date().toISOString()
+      });
+      showToast("👋 Welcome to Friends Chicken Pakora!");
+      render();
+    } else {
+      showToast("❌ Invalid Mobile Number or Password!");
+    }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("fcp_auth_session");
+    S.isAuthenticated = false;
+    showToast("👋 Logged out successfully");
+    render();
+  }
+
   // --- UI Render Router with Error Guard ---
   function render() {
     const appEl = document.querySelector("#app");
     const navEl = document.querySelector("#nav");
     if (!appEl || !navEl) return;
 
+    if (!S.isAuthenticated) {
+      appEl.innerHTML = renderLogin();
+      navEl.innerHTML = "";
+      return;
+    }
+
     if (S.loading) {
       appEl.innerHTML = `
         <div style="text-align:center; padding:50px 20px;">
           <div style="font-size:32px; margin-bottom:12px;">🍗</div>
-          <div style="font-size:16px; font-weight:700;">Loading Friends Chicken pokodi data...</div>
+          <div style="font-size:16px; font-weight:700;">Loading Friends Chicken Pakora data...</div>
         </div>
       `;
       return;
@@ -2797,6 +2950,8 @@
   // --- Global API for Inline Event Handlers ---
   window.fcp = {
     go: navigate,
+    handleLogin,
+    logout: handleLogout,
     changeClosingDate: (d) => {
       S.selectedDate = d;
       render();

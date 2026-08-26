@@ -760,13 +760,16 @@
         </div>
       </div>
 
-      <!-- Action Buttons & Quick Test Case Loader -->
-      <div class="action-row">
-        <button class="action-btn green" onclick="window.fcp.openAddExpenseModal()">
-          ➕ Add Purchase / Expense
+      <!-- Action Buttons & Export Data -->
+      <div class="action-row" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px;">
+        <button class="action-btn green" style="padding:10px 4px; font-size:12px;" onclick="window.fcp.openAddExpenseModal()">
+          ➕ Add Expense
         </button>
-        <button class="action-btn dark" onclick="window.fcp.go('menu')">
-          🍗 Manage Menu & Rates
+        <button class="action-btn dark" style="padding:10px 4px; font-size:12px; background:#0284c7;" onclick="window.fcp.openExportModal()">
+          📤 Export Data
+        </button>
+        <button class="action-btn dark" style="padding:10px 4px; font-size:12px;" onclick="window.fcp.go('menu')">
+          🍗 Rates Menu
         </button>
       </div>
 
@@ -849,7 +852,10 @@
           <div class="brand-title">🌙 Night Closing Sheet</div>
           <div class="brand-sub">${formatDisplayDate(dateStr)}</div>
         </div>
-        <input type="date" value="${dateStr}" id="closingDateInput" onchange="window.fcp.changeClosingDate(this.value)" class="date-picker-clean">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <input type="date" value="${dateStr}" id="closingDateInput" onchange="window.fcp.changeClosingDate(this.value)" class="date-picker-clean">
+          <button class="action-btn dark" style="padding:6px 10px; font-size:11px; background:#0284c7; white-space:nowrap;" onclick="window.fcp.openExportModal('${dateStr}')">📤 Export</button>
+        </div>
       </div>
 
       <div id="stockLinesContainer">
@@ -1299,6 +1305,11 @@
             🔒 Lock & Save Closing
           </button>
         </div>
+
+        <button class="action-btn dark" style="width:100%; margin-top:14px; padding:11px; font-size:13px; background:#0284c7; border:none;" 
+          onclick="window.fcp.openExportModal('${dateStr}')">
+          📤 Extract & Export This Day's Report (Excel / WhatsApp / Print)
+        </button>
       </div>
     `;
   }
@@ -1473,6 +1484,9 @@
           <div class="brand-title">📊 Business Reports & Daily P&L</div>
           <div class="brand-sub">Daily closing records, sales revenue & profit history</div>
         </div>
+        <button class="action-btn dark" style="padding:8px 12px; font-size:12px; background:#0284c7;" onclick="window.fcp.openExportModal()">
+          📤 Export Data
+        </button>
       </div>
 
       <div class="chips-scroll">
@@ -1516,10 +1530,16 @@
             ${filteredClosings.map(c => `
               <div class="wizard-card" style="padding:14px; margin-bottom:10px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f1f5f9; padding-bottom:8px; margin-bottom:8px;">
-                  <b>📅 ${formatDisplayDate(c.closing_date)}</b>
-                  <span class="badge-status ${c.net_profit >= 0 ? "badge-online" : "badge-demo"}">
-                    Profit: ${formatCurrency(c.net_profit)}
-                  </span>
+                  <div>
+                    <b>📅 ${formatDisplayDate(c.closing_date)}</b>
+                    <span class="badge-status ${c.net_profit >= 0 ? "badge-online" : "badge-demo"}" style="margin-left:6px;">
+                      Profit: ${formatCurrency(c.net_profit)}
+                    </span>
+                  </div>
+                  <button class="edit-badge" style="background:#e0f2fe; color:#0369a1; border-color:#bae6fd;" 
+                    onclick="window.fcp.openExportModal('${c.closing_date}')">
+                    📥 Export
+                  </button>
                 </div>
                 <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; font-size:12px;">
                   <div>
@@ -2188,6 +2208,313 @@
         </div>
       </div>
     `;
+  }
+
+  // 5. Export Daily Data Modal
+  function openExportModal(customDate) {
+    const targetDate = customDate || S.selectedDate || S.today;
+    const modalEl = document.querySelector("#modal");
+    modalEl.innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target===this) window.fcp.closeModal()">
+        <div class="modal-sheet">
+          <div class="modal-header">
+            <h3>📥 Export Daily Data & Reports</h3>
+            <button class="close-btn" onclick="window.fcp.closeModal()">✕</button>
+          </div>
+
+          <div style="margin-bottom:16px;">
+            <label style="font-size:12px; font-weight:700; color:#334155; display:block; margin-bottom:6px;">Selected Date:</label>
+            <input type="date" id="exportTargetDate" value="${targetDate}" 
+              style="width:100%; border:1.5px solid #cbd5e1; border-radius:10px; padding:10px 12px; font-size:14px; font-weight:700; background:#fff;">
+          </div>
+
+          <div class="export-options-list">
+            <!-- Option 1: WhatsApp Summary -->
+            <div class="export-card" onclick="window.fcp.shareDayWhatsApp()">
+              <div class="export-card-icon" style="background:#dcfce7; color:#16a34a;">💬</div>
+              <div class="export-card-info">
+                <h4>Share on WhatsApp / Copy Summary</h4>
+                <p>Formatted text report with financial tally, cuts & sales</p>
+              </div>
+            </div>
+
+            <!-- Option 2: Excel / CSV -->
+            <div class="export-card" onclick="window.fcp.downloadDayCSV()">
+              <div class="export-card-icon" style="background:#e0f2fe; color:#0284c7;">📊</div>
+              <div class="export-card-info">
+                <h4>Download Excel / CSV File</h4>
+                <p>Full spreadsheet with stock, sales, cuts & expenses</p>
+              </div>
+            </div>
+
+            <!-- Option 3: Print / PDF -->
+            <div class="export-card" onclick="window.fcp.printDayStatement()">
+              <div class="export-card-icon" style="background:#fef3c7; color:#d97706;">🖨️</div>
+              <div class="export-card-info">
+                <h4>Print / Save as PDF Statement</h4>
+                <p>Official branded letterhead statement for accounts</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-actions" style="margin-top:16px;">
+            <button type="button" class="action-btn light" style="grid-column: span 2;" onclick="window.fcp.closeModal()">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function downloadDayCSV(targetDate) {
+    const dateStr = targetDate || document.querySelector("#exportTargetDate")?.value || S.selectedDate || S.today;
+    const closing = getClosingForDate(dateStr);
+    const stockLines = getStockLinesForDate(dateStr);
+    const dayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
+    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage);
+
+    let csv = "\uFEFF"; // UTF-8 BOM
+
+    // Section 1: Header & Financial Summary
+    csv += `"FRIENDS CHICKEN PAKORA / RIYAN FAST FOODS - DAILY STATEMENT"\n`;
+    csv += `"Date","${dateStr} (${formatDisplayDate(dateStr)})"\n`;
+    csv += `"Total Revenue (₹)","${totals.actualCollected}"\n`;
+    csv += `"Actual Cash Collected (₹)","${closing.actual_cash_collected || 0}"\n`;
+    csv += `"Actual UPI Collected (₹)","${closing.actual_upi_collected || 0}"\n`;
+    csv += `"Expected Sales from Stock (₹)","${totals.expectedSales}"\n`;
+    csv += `"Cash Tally Discrepancy (₹)","${totals.cashDifference}"\n`;
+    csv += `"Total Expenses (₹)","${totals.totalExpenses}"\n`;
+    csv += `"Master Daily Wage (₹)","${closing.master_wage || S.masterDailyWage}"\n`;
+    csv += `"Net Profit (₹)","${totals.netProfit}"\n\n`;
+
+    // Section 2: Morning Raw Chicken Intake & Cuts Breakdown
+    csv += `"MORNING RAW CHICKEN BREAKDOWN"\n`;
+    csv += `"Total Raw Chicken (kg)","${closing.raw_chicken_intake_kg || 0}"\n`;
+    csv += `"Pakora Chicken Meat (kg)","${closing.raw_pakora_meat_kg || 0}"\n`;
+    csv += `"Wings","${closing.wings_pieces || 0} pcs (${closing.wings_weight || 0} g)"\n`;
+    csv += `"Full Joint","${closing.full_joint_pieces || 0} pcs (${closing.full_joint_weight || 0} g)"\n`;
+    csv += `"Half Joint","${closing.half_joint_pieces || 0} pcs (${closing.half_joint_weight || 0} g)"\n`;
+    csv += `"Liver (g)","${closing.liver_val || 0} g"\n\n`;
+
+    // Section 3: Item-Wise Stock & Sales Table
+    csv += `"ITEM-WISE STOCK & SALES RECONCILIATION"\n`;
+    csv += `"Item Name","Category","Rate (₹)","Unit","Opening Stock","Added Today","Closing Stock (Left)","Sold Quantity","Expected Sales (₹)"\n`;
+    stockLines.forEach((l) => {
+      csv += `"${l.item_name}","${l.category || ''}","${l.unit_price}","${l.item_unit || 'kg'}","${l.opening_stock}","${l.marinated_added_stock}","${l.closing_stock}","${l.sold_quantity}","${l.total_sales}"\n`;
+    });
+    csv += `\n`;
+
+    // Section 4: Itemized Expenses & Purchases
+    csv += `"TODAY'S PURCHASES & EXPENSES"\n`;
+    csv += `"Expense ID","Category","Amount (₹)","Payment Method","Quantity / Weight","Description"\n`;
+    if (dayExpenses.length === 0) {
+      csv += `"No expenses recorded for this date"\n`;
+    } else {
+      dayExpenses.forEach((e) => {
+        csv += `"${e.id}","${e.category}","${e.amount}","${e.payment_method || 'Cash'}","${e.quantity || ''}","${(e.description || '').replace(/"/g, '""')}"\n`;
+      });
+    }
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Friends_Chicken_Pakora_Report_${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast("📊 Excel/CSV Report downloaded successfully!");
+  }
+
+  function shareDayWhatsApp(targetDate) {
+    const dateStr = targetDate || document.querySelector("#exportTargetDate")?.value || S.selectedDate || S.today;
+    const closing = getClosingForDate(dateStr);
+    const stockLines = getStockLinesForDate(dateStr);
+    const dayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
+    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage);
+
+    let text = `🍗 *FRIENDS CHICKEN PAKORA / RIYAN FAST FOODS*\n`;
+    text += `📅 *Daily Closing Report:* ${formatDisplayDate(dateStr)}\n\n`;
+
+    text += `💰 *FINANCIAL SUMMARY*\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━\n`;
+    text += `• Total Revenue: *${formatCurrency(totals.actualCollected)}*\n`;
+    text += `  └ Cash: ${formatCurrency(closing.actual_cash_collected || 0)} | UPI: ${formatCurrency(closing.actual_upi_collected || 0)}\n`;
+    text += `• Expected from Stock: ${formatCurrency(totals.expectedSales)}\n`;
+    text += `• Total Expenses: *${formatCurrency(totals.totalExpenses)}*\n`;
+    text += `• Master Wage: ${formatCurrency(closing.master_wage || S.masterDailyWage)}\n`;
+    text += `• *NET PROFIT: ${formatCurrency(totals.netProfit)}* ${totals.netProfit >= 0 ? '🟢' : '🔴'}\n`;
+    text += `• Cash Tally: *${totals.cashDifference === 0 ? 'Matched (₹0)' : formatCurrency(totals.cashDifference)}*\n\n`;
+
+    if (closing.raw_chicken_intake_kg || closing.raw_pakora_meat_kg || closing.wings_pieces) {
+      text += `🍗 *MORNING CHICKEN CUTS*\n`;
+      text += `━━━━━━━━━━━━━━━━━━━━\n`;
+      if (closing.raw_chicken_intake_kg) text += `• Total Raw: ${closing.raw_chicken_intake_kg} kg\n`;
+      if (closing.raw_pakora_meat_kg) text += `• Pakora Meat: ${closing.raw_pakora_meat_kg} kg\n`;
+      if (closing.wings_pieces) text += `• Wings: ${closing.wings_pieces} pcs (${closing.wings_weight || 0}g)\n`;
+      if (closing.full_joint_pieces) text += `• Full Joint: ${closing.full_joint_pieces} pcs (${closing.full_joint_weight || 0}g)\n`;
+      if (closing.half_joint_pieces) text += `• Half Joint: ${closing.half_joint_pieces} pcs (${closing.half_joint_weight || 0}g)\n`;
+      if (closing.liver_val) text += `• Liver: ${closing.liver_val} g\n`;
+      text += `\n`;
+    }
+
+    const soldItems = stockLines.filter(l => l.sold_quantity > 0);
+    if (soldItems.length > 0) {
+      text += `📊 *TOP ITEMS SOLD*\n`;
+      text += `━━━━━━━━━━━━━━━━━━━━\n`;
+      soldItems.forEach(l => {
+        text += `• ${l.item_name}: *${l.sold_quantity} ${l.item_unit || 'kg'}* → ${formatCurrency(l.total_sales)}\n`;
+      });
+      text += `\n`;
+    }
+
+    if (dayExpenses.length > 0) {
+      text += `🛒 *EXPENSES LIST (${formatCurrency(totals.totalExpenses)})*\n`;
+      text += `━━━━━━━━━━━━━━━━━━━━\n`;
+      dayExpenses.forEach(e => {
+        text += `• ${e.category}: ${formatCurrency(e.amount)} (${e.payment_method || 'Cash'})\n`;
+      });
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+
+    const encoded = encodeURIComponent(text);
+    window.open(`https://wa.me/?text=${encoded}`, '_blank');
+
+    showToast("📋 Report copied to clipboard & WhatsApp opened!");
+  }
+
+  function printDayStatement(targetDate) {
+    const dateStr = targetDate || document.querySelector("#exportTargetDate")?.value || S.selectedDate || S.today;
+    const closing = getClosingForDate(dateStr);
+    const stockLines = getStockLinesForDate(dateStr);
+    const dayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
+    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage);
+
+    const printWin = window.open("", "_blank");
+    if (!printWin) {
+      window.print();
+      return;
+    }
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Daily Statement - ${dateStr} - Friends Chicken Pakora</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; color: #0f172a; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 20px; }
+          .header h1 { margin: 0 0 4px; font-size: 22px; color: #059669; }
+          .header p { margin: 0; font-size: 13px; color: #64748b; }
+          .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+          .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center; }
+          .summary-box .lbl { font-size: 11px; color: #64748b; font-weight: bold; }
+          .summary-box .val { font-size: 16px; font-weight: 800; margin-top: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+          th { background: #f1f5f9; font-weight: bold; }
+          .num { text-align: right; }
+          h3 { font-size: 14px; margin: 16px 0 8px; color: #334155; }
+          .profit-green { color: #059669; }
+          .profit-red { color: #dc2626; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>🍗 Friends Chicken Pakora / Riyan Fast Foods</h1>
+          <p>Official Daily Settlement Statement · Date: <b>${formatDisplayDate(dateStr)}</b></p>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-box">
+            <div class="lbl">TOTAL REVENUE</div>
+            <div class="val">${formatCurrency(totals.actualCollected)}</div>
+          </div>
+          <div class="summary-box">
+            <div class="lbl">TOTAL EXPENSES</div>
+            <div class="val">${formatCurrency(totals.totalExpenses)}</div>
+          </div>
+          <div class="summary-box">
+            <div class="lbl">MASTER WAGE</div>
+            <div class="val">${formatCurrency(closing.master_wage || S.masterDailyWage)}</div>
+          </div>
+          <div class="summary-box">
+            <div class="lbl">NET PROFIT</div>
+            <div class="val ${totals.netProfit >= 0 ? 'profit-green' : 'profit-red'}">${formatCurrency(totals.netProfit)}</div>
+          </div>
+        </div>
+
+        <h3>📊 Daily Stock Reconciliation</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Item Name</th>
+              <th>Category</th>
+              <th class="num">Rate</th>
+              <th class="num">Open</th>
+              <th class="num">Added</th>
+              <th class="num">Close</th>
+              <th class="num">Sold</th>
+              <th class="num">Expected Sales</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${stockLines.map(l => `
+              <tr>
+                <td><b>${esc(l.item_name)}</b></td>
+                <td>${esc(l.category || '')}</td>
+                <td class="num">₹${l.unit_price}</td>
+                <td class="num">${l.opening_stock} ${l.item_unit || 'kg'}</td>
+                <td class="num">${l.marinated_added_stock} ${l.item_unit || 'kg'}</td>
+                <td class="num">${l.closing_stock} ${l.item_unit || 'kg'}</td>
+                <td class="num"><b>${l.sold_quantity} ${l.item_unit || 'kg'}</b></td>
+                <td class="num"><b>${formatCurrency(l.total_sales)}</b></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <h3>🛒 Itemized Purchases & Expenses</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Quantity / Weight</th>
+              <th>Payment</th>
+              <th>Description</th>
+              <th class="num">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dayExpenses.length === 0 ? `<tr><td colspan="5" style="text-align:center; color:#94a3b8;">No expenses recorded</td></tr>` : 
+              dayExpenses.map(e => `
+                <tr>
+                  <td><b>${esc(e.category)}</b></td>
+                  <td>${esc(e.quantity || '—')}</td>
+                  <td>${esc(e.payment_method || 'Cash')}</td>
+                  <td>${esc(e.description || '—')}</td>
+                  <td class="num"><b>${formatCurrency(e.amount)}</b></td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+
+        <div style="margin-top: 30px; display:flex; justify-content:space-between; font-size:12px; color:#64748b;">
+          <div>Generated on: ${new Date().toLocaleString('en-IN')}</div>
+          <div>Authorized Signature: ___________________</div>
+        </div>
+
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `);
+    printWin.document.close();
   }
 
   function closeModal() {
@@ -3001,6 +3328,10 @@
     removeBatch,
     saveAndLockClosing,
     loadDemoData,
+    openExportModal,
+    downloadDayCSV,
+    shareDayWhatsApp,
+    printDayStatement,
     resetAppCache
   };
 

@@ -470,6 +470,9 @@
       saveLocal("dailyStock", S.dailyStock);
     }
 
+    // Auto-reconcile opening stock for all days upon startup
+    autoReconcileAllDaysCarryover();
+
     S.loading = false;
     render();
   }
@@ -501,44 +504,106 @@
     };
   }
 
+  // Find the most recent date BEFORE dateStr that has closing stock data
+  function getPreviousClosingStockMap(dateStr) {
+    const candidateDates = Object.keys(S.dailyStock || {})
+      .filter((d) => d < dateStr && Array.isArray(S.dailyStock[d]) && S.dailyStock[d].length > 0)
+      .sort()
+      .reverse();
+
+    const prevDate = candidateDates[0] || getPreviousDate(dateStr);
+    const prevLines = S.dailyStock[prevDate] || [];
+
+    const map = {};
+    const unitMap = {};
+    prevLines.forEach((l) => {
+      let cVal = 0;
+      if (l.closing_val !== undefined && l.closing_val !== '' && !isNaN(+l.closing_val)) {
+        cVal = +l.closing_val;
+      } else if (l.closing_stock !== undefined && !isNaN(+l.closing_stock)) {
+        cVal = +l.closing_stock;
+      }
+      map[l.item_id] = cVal;
+      unitMap[l.item_id] = l.closing_unit || l.item_unit || 'kg';
+    });
+
+    return { prevDate, map, unitMap };
+  }
+
   function syncClosingToNextDay(dateStr) {
-    const nextDate = getNextDate(dateStr);
     const currLines = S.dailyStock[dateStr] || [];
     if (currLines.length === 0) return;
 
     const closingMap = {};
     const unitMap = {};
     currLines.forEach((l) => {
-      const val = l.closing_val !== undefined && l.closing_val !== '' ? +l.closing_val : (+l.closing_stock || 0);
+      let val = 0;
+      if (l.closing_val !== undefined && l.closing_val !== '' && !isNaN(+l.closing_val)) {
+        val = +l.closing_val;
+      } else if (l.closing_stock !== undefined && !isNaN(+l.closing_stock)) {
+        val = +l.closing_stock;
+      }
       closingMap[l.item_id] = val;
       unitMap[l.item_id] = l.closing_unit || l.item_unit || 'kg';
     });
 
-    if (S.dailyStock[nextDate] && (!S.closings[nextDate] || !S.closings[nextDate].is_closed)) {
-      S.dailyStock[nextDate].forEach((nl) => {
-        if (closingMap[nl.item_id] !== undefined) {
-          nl.opening_val = closingMap[nl.item_id];
-          nl.opening_unit = unitMap[nl.item_id] || nl.item_unit;
+    const nextDate = getNextDate(dateStr);
+    const targetDates = Object.keys(S.dailyStock || {}).filter((d) => d >= nextDate);
+    if (!targetDates.includes(nextDate)) targetDates.push(nextDate);
 
-          const itemUnitStr = (nl.item_unit || "kg").toLowerCase();
-          const isWeight = itemUnitStr === "kg" || itemUnitStr === "grams" || itemUnitStr === "g";
-          const isEggs = itemUnitStr === "eggs" || itemUnitStr === "egg" || nl.item_id === "item-eggs-stock";
-          const baseUnit = isWeight ? "kg" : (isEggs ? "eggs" : itemUnitStr);
+    targetDates.forEach((tDate) => {
+      if (S.dailyStock[tDate] && (!S.closings[tDate] || !S.closings[tDate].is_closed)) {
+        S.dailyStock[tDate].forEach((nl) => {
+          if (closingMap[nl.item_id] !== undefined) {
+            nl.opening_val = closingMap[nl.item_id];
+            if (unitMap[nl.item_id]) nl.opening_unit = unitMap[nl.item_id];
+          }
+        });
+        S.dailyStock[tDate] = S.dailyStock[tDate].map((l) => sanitizeStockLine(l));
+      }
+    });
 
-          const openNorm = normalizeToBase(nl.opening_val, nl.opening_unit || baseUnit, baseUnit);
-          const addedNorm = normalizeToBase(nl.added_val, nl.added_unit || baseUnit, baseUnit);
-          const closingNorm = normalizeToBase(nl.closing_val, nl.closing_unit || baseUnit, baseUnit);
-          const soldNorm = Math.max(0, Math.round((openNorm + addedNorm - closingNorm) * 1000) / 1000);
+    saveLocal("dailyStock", S.dailyStock);
+  }
 
-          nl.sold_quantity = soldNorm;
-          nl.opening_stock = openNorm;
-          nl.marinated_added_stock = addedNorm;
-          nl.closing_stock = closingNorm;
-          nl.total_sales = Math.round(soldNorm * (+nl.unit_price || 0));
+  function autoReconcileAllDaysCarryover() {
+    if (!S.dailyStock) return;
+    const sortedDates = Object.keys(S.dailyStock).sort();
+
+    for (let i = 0; i < sortedDates.length; i++) {
+      const d = sortedDates[i];
+      if (i > 0) {
+        const prevD = sortedDates[i - 1];
+        const prevLines = S.dailyStock[prevD] || [];
+        const isCurrentLocked = S.closings[d] && S.closings[d].is_closed;
+
+        if (!isCurrentLocked && prevLines.length > 0) {
+          const closingMap = {};
+          const unitMap = {};
+          prevLines.forEach((l) => {
+            let val = 0;
+            if (l.closing_val !== undefined && l.closing_val !== '' && !isNaN(+l.closing_val)) {
+              val = +l.closing_val;
+            } else if (l.closing_stock !== undefined && !isNaN(+l.closing_stock)) {
+              val = +l.closing_stock;
+            }
+            closingMap[l.item_id] = val;
+            unitMap[l.item_id] = l.closing_unit || l.item_unit || 'kg';
+          });
+
+          if (S.dailyStock[d]) {
+            S.dailyStock[d].forEach((nl) => {
+              if (closingMap[nl.item_id] !== undefined) {
+                nl.opening_val = closingMap[nl.item_id];
+                if (unitMap[nl.item_id]) nl.opening_unit = unitMap[nl.item_id];
+              }
+            });
+            S.dailyStock[d] = S.dailyStock[d].map((l) => sanitizeStockLine(l));
+          }
         }
-      });
-      saveLocal("dailyStock", S.dailyStock);
+      }
     }
+    saveLocal("dailyStock", S.dailyStock);
   }
 
   function getStockLinesForDate(dateStr) {
@@ -546,16 +611,7 @@
     (S.menu || []).forEach((m) => { menuMap[m.id] = m; });
 
     // 1. Auto-carryover from previous day's closing stock!
-    const prevDate = getPreviousDate(dateStr);
-    const prevLines = S.dailyStock[prevDate] || [];
-    const prevClosingMap = {};
-    const prevUnitMap = {};
-    prevLines.forEach((l) => {
-      const val = l.closing_val !== undefined && l.closing_val !== '' ? +l.closing_val : (+l.closing_stock || 0);
-      prevClosingMap[l.item_id] = val;
-      prevUnitMap[l.item_id] = l.closing_unit || l.item_unit || 'kg';
-    });
-
+    const { prevDate, map: prevClosingMap, unitMap: prevUnitMap } = getPreviousClosingStockMap(dateStr);
     const isCurrentLocked = S.closings[dateStr] && S.closings[dateStr].is_closed;
 
     if (S.dailyStock[dateStr] && S.dailyStock[dateStr].length > 0) {
@@ -594,7 +650,7 @@
 
     const activeItems = (S.menu || DEFAULT_MENU_ITEMS).filter((m) => m.is_active !== false);
     const generated = activeItems.map((item) => {
-      const opening = prevClosingMap[item.id] || 0;
+      const opening = prevClosingMap[item.id] !== undefined ? prevClosingMap[item.id] : 0;
       const unit = prevUnitMap[item.id] || item.unit;
       return sanitizeStockLine({
         item_id: item.id,
@@ -1046,7 +1102,7 @@
                             <!-- Opening Stock Field -->
                             <div class="calc-field">
                               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                <label style="margin-bottom:0;">Opening</label>
+                                <label style="margin-bottom:0;">Opening ${+openVal > 0 ? `<span style="color:#059669; font-size:10px; font-weight:700;">(carried over)</span>` : ''}</label>
                                 <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'opening_unit', this.value)">
                                   <option value="kg" ${openUnit === 'kg' ? 'selected' : ''}>kg</option>
                                   <option value="g" ${openUnit === 'g' || openUnit === 'grams' ? 'selected' : ''}>grams</option>
@@ -1111,7 +1167,7 @@
                           <div class="stock-calc-grid">
                             <div class="calc-field">
                               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                <label style="margin-bottom:0;">Opening</label>
+                                <label style="margin-bottom:0;">Opening ${+openVal > 0 ? `<span style="color:#059669; font-size:10px; font-weight:700;">(carried over)</span>` : ''}</label>
                                 <select class="field-unit-select" onchange="window.fcp.updateFieldUnit(${idx}, 'opening_unit', this.value)">
                                   <option value="eggs" ${openUnit === 'eggs' ? 'selected' : ''}>eggs</option>
                                   <option value="crates" ${openUnit === 'crates' || openUnit === 'crate' ? 'selected' : ''}>crates (30 eggs)</option>
@@ -1150,7 +1206,7 @@
                           <div class="stock-calc-grid">
                             <div class="calc-field">
                               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                <label style="margin-bottom:0;">Opening</label>
+                                <label style="margin-bottom:0;">Opening ${+openVal > 0 ? `<span style="color:#059669; font-size:10px; font-weight:700;">(carried over)</span>` : ''}</label>
                                 <span style="font-size:11px; color:#64748b;">${itemUnitStr}</span>
                               </div>
                               <input type="number" step="any" min="0" value="${openVal}" placeholder="0"
@@ -3067,6 +3123,10 @@
     // Save Daily Stock lines locally
     S.dailyStock[dateStr] = totals.stockLines;
     saveLocal("dailyStock", S.dailyStock);
+
+    // Dynamic carryover to next days
+    syncClosingToNextDay(dateStr);
+    autoReconcileAllDaysCarryover();
 
     // Sync to Supabase if connected
     if (db) {

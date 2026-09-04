@@ -228,6 +228,28 @@
     });
   };
 
+  const formatShortDate = (dStr) => {
+    if (!dStr) return "";
+    const d = new Date(dStr + "T00:00:00");
+    const day = d.getDate();
+    const month = d.toLocaleString("en-US", { month: "short" });
+    const weekday = d.toLocaleString("en-US", { weekday: "short" });
+    const isToday = (S && S.today && dStr === S.today);
+    return `${day} ${month} (${weekday})${isToday ? " · Today" : ""}`;
+  };
+
+  const getTrackedDates = () => {
+    const dates = [];
+    let cur = new Date("2026-09-01T00:00:00");
+    const targetEnd = (S && S.today && S.today >= "2026-09-04") ? S.today : "2026-09-04";
+    const end = new Date(targetEnd + "T00:00:00");
+    while (cur <= end) {
+      dates.push(cur.toISOString().slice(0, 10));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return dates;
+  };
+
   const esc = (x) =>
     String(x ?? "").replace(/[&<>"']/g, (c) => ({
       "&": "&amp;",
@@ -370,6 +392,7 @@
     page: location.hash.slice(1) || "dashboard",
     today: getTodayDate(),
     selectedDate: getTodayDate(),
+    dashboardDate: getTodayDate(),
     menu: [],
     closings: {},       // Keyed by "YYYY-MM-DD"
     dailyStock: {},     // Keyed by "YYYY-MM-DD" -> array of stock lines
@@ -378,11 +401,13 @@
     masterDailyWage: 600,
     activeMenuCategory: "all",
     activeExpenseCategory: "all",
-    reportRange: "today",
+    reportRange: "all",
     loading: true
   };
 
   // --- Data Initialization & Supabase Sync ---
+  const DATASET_VERSION = "2026-09-04_sep1_clean_v5";
+
   async function initData() {
     S.loading = true;
     render();
@@ -402,20 +427,19 @@
     Object.keys(S.dailyStock || {}).forEach((d) => {
       if (d < "2026-09-01") delete S.dailyStock[d];
     });
-    S.expenses = (S.expenses || []).filter((e) => e.expense_date >= "2026-09-01");
+    S.expenses = (S.expenses || []).filter((e) => e && e.expense_date >= "2026-09-01");
 
-    // Auto-populate true client historical data (Sep 1 - Sep 4) if missing or incomplete
-    if (!S.closings || !S.closings["2026-09-01"]) {
+    // Version migration: enforce clean September 1 to September 4 dataset
+    const localVer = loadLocal("dataset_version", null);
+    if (localVer !== DATASET_VERSION || !S.closings || !S.closings["2026-09-01"] || !S.closings["2026-09-03"]) {
       const historical = generateClientHistoricalDataset();
-      S.closings = Object.assign({}, historical.closings, S.closings || {});
-      S.dailyStock = Object.assign({}, historical.dailyStock, S.dailyStock || {});
-
-      const existingExpIds = new Set((S.expenses || []).map((e) => e.id));
-      (historical.expenses || []).forEach((e) => {
-        if (!existingExpIds.has(e.id)) {
-          S.expenses.push(e);
-        }
-      });
+      S.closings = historical.closings;
+      S.dailyStock = historical.dailyStock;
+      S.expenses = historical.expenses;
+      saveLocal("closings", S.closings);
+      saveLocal("dailyStock", S.dailyStock);
+      saveLocal("expenses", S.expenses);
+      saveLocal("dataset_version", DATASET_VERSION);
     }
 
     saveLocal("closings", S.closings);
@@ -427,7 +451,7 @@
       try {
         await fetchCloudDataFromSupabase();
         // If closings are empty or missing Sep 1 after fetch, ensure true client dataset is present
-        if (!S.closings || !S.closings["2026-09-01"]) {
+        if (!S.closings || !S.closings["2026-09-01"] || !S.closings["2026-09-03"]) {
           const historical = generateClientHistoricalDataset();
           S.closings = Object.assign({}, historical.closings, S.closings || {});
           S.dailyStock = Object.assign({}, historical.dailyStock, S.dailyStock || {});
@@ -698,7 +722,7 @@
     return generated;
   }
 
-  function computeDailyTotals(stockLines, cash, upi, expensesList, masterWage) {
+  function computeDailyTotals(stockLines, cash, upi, expensesList, masterWage, isClosed = false) {
     let expectedSales = 0;
     const lines = stockLines || [];
     lines.forEach((line) => {
@@ -709,7 +733,12 @@
       const addedNorm = normalizeToBase(line.added_val ?? line.marinated_added_stock, line.added_unit || baseUnit, baseUnit);
       const closingNorm = normalizeToBase(line.closing_val ?? line.closing_stock, line.closing_unit || baseUnit, baseUnit);
 
-      const soldNorm = Math.max(0, Math.round((openNorm + addedNorm - closingNorm) * 1000) / 1000);
+      // Only compute sold if day is closed or closing leftover was explicitly provided
+      const hasClosingInput = (line.closing_val !== undefined && line.closing_val !== '' && !isNaN(+line.closing_val) && +line.closing_val > 0);
+      let soldNorm = 0;
+      if (isClosed || hasClosingInput) {
+        soldNorm = Math.max(0, Math.round((openNorm + addedNorm - closingNorm) * 1000) / 1000);
+      }
       line.sold_quantity = soldNorm;
       line.opening_stock = openNorm;
       line.marinated_added_stock = addedNorm;
@@ -722,7 +751,8 @@
     });
 
     const actualCollected = (+cash || 0) + (+upi || 0);
-    const cashDifference = actualCollected - expectedSales;
+    const hasCashCount = actualCollected > 0 || isClosed;
+    const cashDifference = hasCashCount ? (actualCollected - expectedSales) : 0;
 
     let otherExpenses = 0;
     (expensesList || []).forEach((e) => {
@@ -730,7 +760,7 @@
     });
 
     const totalExpenses = otherExpenses + (+masterWage || 0);
-    const netProfit = actualCollected - totalExpenses;
+    const netProfit = hasCashCount ? (actualCollected - totalExpenses) : 0;
 
     return {
       expectedSales,
@@ -768,26 +798,27 @@
 
   // 2. Dashboard View
   function renderDashboard() {
-    const today = S.today;
-    const closing = getClosingForDate(today);
-    const todayExpenses = (S.expenses || []).filter((e) => e.expense_date === today);
-    const stockLines = getStockLinesForDate(today);
+    const viewDate = S.dashboardDate || S.today;
+    const isCurrentToday = (viewDate === S.today);
+    const closing = getClosingForDate(viewDate);
+    const dayExpenses = (S.expenses || []).filter((e) => e && e.expense_date === viewDate);
+    const stockLines = getStockLinesForDate(viewDate);
+    const isClosed = !!(closing && closing.is_closed);
 
     const totals = computeDailyTotals(
       stockLines,
       closing.actual_cash_collected,
       closing.actual_upi_collected,
-      todayExpenses,
-      closing.master_wage
+      dayExpenses,
+      closing.master_wage,
+      isClosed
     );
-
-    const isClosed = closing.is_closed;
 
     return `
       <div class="header-bar">
         <div>
           <div class="brand-title">🍗 Friends Chicken Pakora</div>
-          <div class="brand-sub">Daily Tracker · ${formatDisplayDate(today)}</div>
+          <div class="brand-sub">Daily Tracker · ${formatDisplayDate(viewDate)}</div>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <button class="badge-status badge-online" style="cursor:pointer; border:none; display:inline-flex; align-items:center; gap:4px; font-weight:700; background:#ecfdf5; color:#065f46;" onclick="window.fcp.triggerManualDeepSync()" title="Auto-sync active every 30 mins. Click to sync now.">
@@ -797,43 +828,54 @@
         </div>
       </div>
 
+      <!-- Quick Day Switcher Pills (September 1 to Today) -->
+      <div class="chips-scroll" style="margin-bottom:12px; padding:2px 0;">
+        ${getTrackedDates().map(d => `
+          <button class="chip ${viewDate === d ? "active" : ""}" onclick="window.fcp.setDashboardDate('${d}')" style="font-weight:700; font-size:12px;">
+            ${formatShortDate(d)} ${S.closings[d]?.is_closed ? "✅" : (d === S.today ? "🟢" : "")}
+          </button>
+        `).join("")}
+      </div>
+
       <!-- Quick Closing Callout -->
       <div class="closing-alert-card">
         <div>
           <h3>🌙 Night Closing</h3>
-          <p>${isClosed ? "Tonight's closing is locked & settled" : "Reconcile daily stock & cash in 15 mins"}</p>
+          <p>${isClosed ? `Closing locked & settled for ${formatShortDate(viewDate)}` : "Reconcile daily stock & cash in 15 mins"}</p>
         </div>
-        <button class="closing-btn" onclick="window.fcp.go('closing')">
+        <button class="closing-btn" onclick="window.fcp.changeClosingDate('${viewDate}'); window.fcp.go('closing');">
           ${isClosed ? "View Sheet" : "Start Closing"}
         </button>
       </div>
 
-      <!-- KPI Summary Cards -->
+      <!-- KPI Summary Cards (Guarded against minus balances during active day) -->
       <div class="kpi-grid">
         <div class="kpi-card">
-          <div class="kpi-label">Today's Revenue</div>
+          <div class="kpi-label">${isCurrentToday ? "Today's Revenue" : "Day's Revenue"}</div>
           <div class="kpi-amount revenue-color">${formatCurrency(totals.actualCollected)}</div>
-          <div class="kpi-sub">Cash ₹${totals.actualCollected ? closing.actual_cash_collected || 0 : 0} · UPI ₹${totals.actualCollected ? closing.actual_upi_collected || 0 : 0}</div>
+          <div class="kpi-sub">${isClosed || totals.actualCollected > 0 ? `Cash ₹${closing.actual_cash_collected || 0} · UPI ₹${closing.actual_upi_collected || 0}` : "Day active · Sales counting"}</div>
         </div>
 
         <div class="kpi-card">
-          <div class="kpi-label">Today's Net Profit</div>
-          <div class="kpi-amount ${totals.netProfit >= 0 ? "profit-pos" : "profit-neg"}">${formatCurrency(totals.netProfit)}</div>
-          <div class="kpi-sub">Sales - Expenses - Wage</div>
+          <div class="kpi-label">${isCurrentToday ? "Today's Net Profit" : "Day's Net Profit"}</div>
+          <div class="kpi-amount ${isClosed ? (totals.netProfit >= 0 ? "profit-pos" : "profit-neg") : "profit-pos"}">
+            ${isClosed ? formatCurrency(totals.netProfit) : (totals.netProfit > 0 ? formatCurrency(totals.netProfit) : "₹0")}
+          </div>
+          <div class="kpi-sub">${isClosed ? "Settled & Locked" : "🌙 Settles at Night Closing"}</div>
         </div>
 
         <div class="kpi-card">
-          <div class="kpi-label">Today's Total Expenses</div>
+          <div class="kpi-label">${isCurrentToday ? "Today's Total Expenses" : "Day's Expenses"}</div>
           <div class="kpi-amount expense-color">${formatCurrency(totals.totalExpenses)}</div>
           <div class="kpi-sub">Chicken + Groceries + Wage</div>
         </div>
 
         <div class="kpi-card">
           <div class="kpi-label">Cash Tally Match</div>
-          <div class="kpi-amount ${totals.cashDifference === 0 ? "profit-pos" : totals.cashDifference < 0 ? "profit-neg" : "revenue-color"}">
-            ${totals.cashDifference === 0 ? "₹0 Matched" : formatCurrency(totals.cashDifference)}
+          <div class="kpi-amount ${isClosed ? (totals.cashDifference === 0 ? "profit-pos" : totals.cashDifference < 0 ? "profit-neg" : "revenue-color") : "profit-pos"}">
+            ${isClosed ? (totals.cashDifference === 0 ? "₹0 Matched" : formatCurrency(totals.cashDifference)) : "⏳ In Progress"}
           </div>
-          <div class="kpi-sub">${totals.cashDifference < 0 ? "Shortage" : totals.cashDifference > 0 ? "Excess Cash" : "Perfect Match"}</div>
+          <div class="kpi-sub">${isClosed ? (totals.cashDifference < 0 ? "Shortage" : totals.cashDifference > 0 ? "Excess Cash" : "Perfect Match") : "Reconciles at Night"}</div>
         </div>
       </div>
 
@@ -842,7 +884,7 @@
         <button class="action-btn green" style="padding:10px 2px; font-size:11px;" onclick="window.fcp.openAddExpenseModal()">
           ➕ Expense
         </button>
-        <button class="action-btn dark" style="padding:10px 2px; font-size:11px; background:#0284c7;" onclick="window.fcp.openExportModal()">
+        <button class="action-btn dark" style="padding:10px 2px; font-size:11px; background:#0284c7;" onclick="window.fcp.openExportModal('${viewDate}')">
           📤 Export
         </button>
         <button class="action-btn dark" style="padding:10px 2px; font-size:11px; background:#4f46e5;" onclick="window.fcp.triggerManualDeepSync()">
@@ -853,46 +895,54 @@
         </button>
       </div>
 
-
       <!-- Today's Master Stock Snapshot -->
       <div class="section">
         <div class="section-header">
-          <h2>📊 Today's Stock Status</h2>
-          <button class="link-btn" onclick="window.fcp.go('closing')">Full Closing Sheet →</button>
+          <h2>📊 ${isCurrentToday ? "Today's Stock Status" : `${formatShortDate(viewDate)} Stock Status`}</h2>
+          <button class="link-btn" onclick="window.fcp.changeClosingDate('${viewDate}'); window.fcp.go('closing');">Full Closing Sheet →</button>
         </div>
         <div class="wizard-card" style="padding: 8px 12px;">
-          ${stockLines.slice(0, 7).map(line => `
+          ${stockLines.slice(0, 8).map(line => {
+            const isWeight = (line.item_unit === 'kg' || line.item_unit === 'grams' || !line.item_unit);
+            const unit = line.item_unit || (isWeight ? 'kg' : 'pcs');
+            const totalAvail = Math.round(((+line.opening_stock || 0) + (+line.marinated_added_stock || 0)) * 1000) / 1000;
+            return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 4px; border-bottom:1px solid #f1f5f9;">
               <div>
                 <b style="font-size:14px; color:#0f172a;">${esc(line.item_name)}</b>
                 <div style="font-size:12px; color:#64748b; margin-top:2px;">
-                  Open: <b>${line.opening_stock} ${line.item_unit || 'kg'}</b> · Added: <b>${line.marinated_added_stock} ${line.item_unit || 'kg'}</b>
+                  Open: <b>${line.opening_stock} ${unit}</b> · Added: <b>${line.marinated_added_stock} ${unit}</b>
                 </div>
               </div>
               <div style="text-align:right;">
-                <div style="font-size:14px; font-weight:800; color:#16a34a;">Sold: ${line.sold_quantity} ${line.item_unit || 'kg'}</div>
-                <div style="font-size:12px; color:#64748b;">Left: <b>${line.closing_stock} ${line.item_unit || 'kg'}</b></div>
+                ${isClosed || (line.sold_quantity > 0 && line.closing_stock > 0) ? `
+                  <div style="font-size:14px; font-weight:800; color:#16a34a;">Sold: ${line.sold_quantity} ${unit}</div>
+                  <div style="font-size:12px; color:#64748b;">Left: <b>${line.closing_stock} ${unit}</b></div>
+                ` : `
+                  <div style="font-size:13px; font-weight:800; color:#0284c7;">Available: ${totalAvail} ${unit}</div>
+                  <div style="font-size:11px; color:#64748b;">🏪 Counter Active</div>
+                `}
               </div>
             </div>
-          `).join("")}
+          `}).join("")}
         </div>
       </div>
 
-      <!-- Today's Expenses with ✏️ Edit Button -->
+      <!-- Purchases & Expenses with ✏️ Edit Button -->
       <div class="section">
         <div class="section-header">
-          <h2>🛒 Today's Purchases & Expenses</h2>
+          <h2>🛒 ${isCurrentToday ? "Today's Purchases & Expenses" : `${formatShortDate(viewDate)} Purchases & Expenses`}</h2>
           <button class="link-btn" onclick="window.fcp.go('expenses')">View All →</button>
         </div>
-        ${todayExpenses.length === 0 ? `
+        ${dayExpenses.length === 0 ? `
           <div class="empty-box">
             <span>🛒</span>
-            No morning purchases or expenses logged today.<br>
-            <button class="action-btn green" style="margin-top:12px; display:inline-flex;" onclick="window.fcp.openAddExpenseModal()">+ Add Morning Purchase</button>
+            No purchases or expenses logged for this day.<br>
+            <button class="action-btn green" style="margin-top:12px; display:inline-flex;" onclick="window.fcp.openAddExpenseModal()">+ Add Purchase</button>
           </div>
         ` : `
           <div class="tx-list">
-            ${todayExpenses.map(e => `
+            ${dayExpenses.map(e => `
               <div class="tx-card">
                 <div class="tx-left">
                   <div class="tx-title">${esc(e.category)}</div>
@@ -915,27 +965,38 @@
   function renderClosingWizard() {
     const dateStr = S.selectedDate;
     const closing = getClosingForDate(dateStr);
-    const todayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
+    const todayExpenses = (S.expenses || []).filter((e) => e && e.expense_date === dateStr);
     const stockLines = getStockLinesForDate(dateStr);
+    const isClosed = !!(closing && closing.is_closed);
 
     const totals = computeDailyTotals(
       stockLines,
       closing.actual_cash_collected,
       closing.actual_upi_collected,
       todayExpenses,
-      closing.master_wage
+      closing.master_wage,
+      isClosed
     );
 
     return `
       <div class="header-bar">
         <div>
           <div class="brand-title">🌙 Night Closing Sheet</div>
-          <div class="brand-sub">${formatDisplayDate(dateStr)}</div>
+          <div class="brand-sub">${formatDisplayDate(dateStr)} ${isClosed ? "· 🔒 Settled" : "· 🟢 In Progress"}</div>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
-          <input type="date" value="${dateStr}" id="closingDateInput" onchange="window.fcp.changeClosingDate(this.value)" class="date-picker-clean">
+          <input type="date" min="2026-09-01" value="${dateStr}" id="closingDateInput" onchange="window.fcp.changeClosingDate(this.value)" class="date-picker-clean">
           <button class="action-btn dark" style="padding:6px 10px; font-size:11px; background:#0284c7; white-space:nowrap;" onclick="window.fcp.openExportModal('${dateStr}')">📤 Export</button>
         </div>
+      </div>
+
+      <!-- Quick Day Switcher Pills (September 1 to Today) -->
+      <div class="chips-scroll" style="margin-bottom:12px; padding:2px 0;">
+        ${getTrackedDates().map(d => `
+          <button class="chip ${dateStr === d ? "active" : ""}" onclick="window.fcp.changeClosingDate('${d}')" style="font-weight:700; font-size:12px;">
+            ${formatShortDate(d)} ${S.closings[d]?.is_closed ? "🔒 Closed" : "🟢 Open"}
+          </button>
+        `).join("")}
       </div>
 
       <div id="stockLinesContainer">
@@ -1302,21 +1363,25 @@
         </div>
 
         <!-- Tally Comparison Indicator Box -->
-        <div id="tally-box" class="tally-box ${totals.cashDifference === 0 ? "tally-matched" : totals.cashDifference < 0 ? "tally-shortage" : "tally-surplus"}">
+        <div id="tally-box" class="tally-box ${(!isClosed && totals.actualCollected === 0) ? "tally-matched" : (totals.cashDifference === 0 ? "tally-matched" : totals.cashDifference < 0 ? "tally-shortage" : "tally-surplus")}">
           <div>
             <div class="tally-title">
-              ${totals.cashDifference === 0 
+              ${(!isClosed && totals.actualCollected === 0)
+                ? "ℹ️ Ready for Night Cash & UPI Entry"
+                : totals.cashDifference === 0 
                 ? "🎉 Cash Tally Matched Perfectly!" 
                 : totals.cashDifference < 0 
                 ? "⚠️ Cash Shortage Detected" 
                 : "ℹ️ Cash Surplus / Extra Collected"}
             </div>
             <div style="font-size:12px; margin-top:3px;">
-              Expected from Stock: <b>${formatCurrency(totals.expectedSales)}</b> | Actual Collected: <b>${formatCurrency(totals.actualCollected)}</b>
+              ${(!isClosed && totals.actualCollected === 0)
+                ? `Expected from Stock: <b>${formatCurrency(totals.expectedSales)}</b> | Count cash drawer & online UPI to balance`
+                : `Expected from Stock: <b>${formatCurrency(totals.expectedSales)}</b> | Actual Collected: <b>${formatCurrency(totals.actualCollected)}</b>`}
             </div>
           </div>
           <div class="tally-amount">
-            ${totals.cashDifference === 0 ? "₹0" : formatCurrency(totals.cashDifference)}
+            ${(!isClosed && totals.actualCollected === 0) ? "Pending" : (totals.cashDifference === 0 ? "₹0" : formatCurrency(totals.cashDifference))}
           </div>
         </div>
       </div>
@@ -1377,8 +1442,8 @@
         <div style="border-top:1px solid #334155; padding-top:14px; display:flex; justify-content:space-between; align-items:center;">
           <div>
             <div style="font-size:13px; color:#cbd5e1;">Net Profit (Take Home):</div>
-            <div style="font-size:28px; font-weight:800; color:${totals.netProfit >= 0 ? '#4ade80' : '#f87171'};" id="closing-net-profit">
-              ${formatCurrency(totals.netProfit)}
+            <div style="font-size:28px; font-weight:800; color:${(!isClosed && totals.actualCollected === 0) ? '#94a3b8' : (totals.netProfit >= 0 ? '#4ade80' : '#f87171')};" id="closing-net-profit">
+              ${(!isClosed && totals.actualCollected === 0) ? "₹0 (Pending Night Count)" : formatCurrency(totals.netProfit)}
             </div>
           </div>
           <button class="action-btn green" style="padding:14px 22px; font-size:15px;" onclick="window.fcp.saveAndLockClosing()">
@@ -2345,12 +2410,12 @@
               </div>
             </div>
 
-            <!-- Option 5: Restore Client Historical Data (Aug 23 - Sep 4) -->
+            <!-- Option 5: Restore Client True Data (Sep 1 - Sep 4) -->
             <div class="export-card" onclick="window.fcp.restoreClientHistoricalData()">
               <div class="export-card-icon" style="background:#ecfdf5; color:#059669;">🍗</div>
               <div class="export-card-info">
-                <h4>Restore All Client Data (Aug 23 - Sep 4)</h4>
-                <p>Reload all 13 days of continuous stock, piece counts & profit</p>
+                <h4>Restore True Client Data (Sep 1 – Sep 4 Today)</h4>
+                <p>Reload clean continuous dataset starting September 1 with stock carryovers</p>
               </div>
             </div>
           </div>
@@ -2367,8 +2432,9 @@
     const dateStr = targetDate || document.querySelector("#exportTargetDate")?.value || S.selectedDate || S.today;
     const closing = getClosingForDate(dateStr);
     const stockLines = getStockLinesForDate(dateStr);
-    const dayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
-    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage);
+    const dayExpenses = (S.expenses || []).filter((e) => e && e.expense_date === dateStr);
+    const isClosed = !!(closing && closing.is_closed);
+    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage, isClosed);
 
     let csv = "\uFEFF"; // UTF-8 BOM
 
@@ -2429,8 +2495,9 @@
     const dateStr = targetDate || document.querySelector("#exportTargetDate")?.value || S.selectedDate || S.today;
     const closing = getClosingForDate(dateStr);
     const stockLines = getStockLinesForDate(dateStr);
-    const dayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
-    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage);
+    const dayExpenses = (S.expenses || []).filter((e) => e && e.expense_date === dateStr);
+    const isClosed = !!(closing && closing.is_closed);
+    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage, isClosed);
 
     let text = `🍗 *FRIENDS CHICKEN PAKORA / RIYAN FAST FOODS*\n`;
     text += `📅 *Daily Closing Report:* ${formatDisplayDate(dateStr)}\n\n`;
@@ -2489,8 +2556,9 @@
     const dateStr = targetDate || document.querySelector("#exportTargetDate")?.value || S.selectedDate || S.today;
     const closing = getClosingForDate(dateStr);
     const stockLines = getStockLinesForDate(dateStr);
-    const dayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
-    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage);
+    const dayExpenses = (S.expenses || []).filter((e) => e && e.expense_date === dateStr);
+    const isClosed = !!(closing && closing.is_closed);
+    const totals = computeDailyTotals(stockLines, closing.actual_cash_collected, closing.actual_upi_collected, dayExpenses, closing.master_wage, isClosed);
 
     const printWin = window.open("", "_blank");
     if (!printWin) {
@@ -2880,10 +2948,17 @@
 
       let expectedSales = 0;
       stockLines.forEach((l) => {
-        const sold = Math.max(0, Math.round((l.opening_stock + l.marinated_added_stock - l.closing_stock) * 1000) / 1000);
-        l.sold_quantity = sold;
-        l.total_sales = Math.round(sold * l.unit_price);
-        expectedSales += l.total_sales;
+        if (!isToday) {
+          const sold = Math.max(0, Math.round((l.opening_stock + l.marinated_added_stock - l.closing_stock) * 1000) / 1000);
+          l.sold_quantity = sold;
+          l.total_sales = Math.round(sold * l.unit_price);
+          expectedSales += l.total_sales;
+        } else {
+          l.sold_quantity = 0;
+          l.total_sales = 0;
+          l.closing_val = 0;
+          l.closing_stock = 0;
+        }
       });
 
       let dayExpTotal = 0;
@@ -2917,13 +2992,13 @@
       closings[cfg.date] = {
         id: "closing-" + cfg.date,
         closing_date: cfg.date,
-        total_expected_sales: expectedSales,
+        total_expected_sales: !isToday ? expectedSales : 0,
         actual_cash_collected: cashCollected,
         actual_upi_collected: upiCollected,
         total_revenue: actualCollected,
         total_expenses: totalExp,
         net_profit: netProfit,
-        cash_difference: !isToday ? 0 : -expectedSales,
+        cash_difference: 0,
         master_wage: masterWage,
         raw_chicken_intake_kg: cfg.raw_chicken_intake_kg,
         raw_pakora_meat_kg: cfg.raw_pakora_meat_kg,
@@ -3564,38 +3639,55 @@
   function refreshClosingTotalsInDOM() {
     const dateStr = S.selectedDate;
     const stockLines = getStockLinesForDate(dateStr);
-    const todayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
+    const todayExpenses = (S.expenses || []).filter((e) => e && e.expense_date === dateStr);
     const closing = getClosingForDate(dateStr);
+    const isClosed = !!(closing && closing.is_closed);
 
     const totals = computeDailyTotals(
       stockLines,
       closing.actual_cash_collected,
       closing.actual_upi_collected,
       todayExpenses,
-      closing.master_wage
+      closing.master_wage,
+      isClosed
     );
+
+    const hasStartedEntry = totals.actualCollected > 0 || isClosed;
 
     // 1. Tally Box Update
     const tallyBox = document.querySelector("#tally-box");
     if (tallyBox) {
-      tallyBox.className = `tally-box ${totals.cashDifference === 0 ? "tally-matched" : totals.cashDifference < 0 ? "tally-shortage" : "tally-surplus"}`;
-      tallyBox.innerHTML = `
-        <div>
-          <div class="tally-title">
-            ${totals.cashDifference === 0 
-              ? "🎉 Cash Tally Matched Perfectly!" 
-              : totals.cashDifference < 0 
-              ? "⚠️ Cash Shortage Detected" 
-              : "ℹ️ Cash Surplus / Extra Collected"}
+      if (!hasStartedEntry) {
+        tallyBox.className = "tally-box tally-matched";
+        tallyBox.innerHTML = `
+          <div>
+            <div class="tally-title">ℹ️ Ready for Night Cash & UPI Entry</div>
+            <div style="font-size:12px; margin-top:3px;">
+              Expected from Stock: <b>${formatCurrency(totals.expectedSales)}</b> | Count cash drawer & online UPI to balance
+            </div>
           </div>
-          <div style="font-size:12px; margin-top:3px;">
-            Expected from Stock: <b>${formatCurrency(totals.expectedSales)}</b> | Actual Collected: <b>${formatCurrency(totals.actualCollected)}</b>
+          <div class="tally-amount">Pending</div>
+        `;
+      } else {
+        tallyBox.className = `tally-box ${totals.cashDifference === 0 ? "tally-matched" : totals.cashDifference < 0 ? "tally-shortage" : "tally-surplus"}`;
+        tallyBox.innerHTML = `
+          <div>
+            <div class="tally-title">
+              ${totals.cashDifference === 0 
+                ? "🎉 Cash Tally Matched Perfectly!" 
+                : totals.cashDifference < 0 
+                ? "⚠️ Cash Shortage Detected" 
+                : "ℹ️ Cash Surplus / Extra Collected"}
+            </div>
+            <div style="font-size:12px; margin-top:3px;">
+              Expected from Stock: <b>${formatCurrency(totals.expectedSales)}</b> | Actual Collected: <b>${formatCurrency(totals.actualCollected)}</b>
+            </div>
           </div>
-        </div>
-        <div class="tally-amount">
-          ${totals.cashDifference === 0 ? "₹0" : formatCurrency(totals.cashDifference)}
-        </div>
-      `;
+          <div class="tally-amount">
+            ${totals.cashDifference === 0 ? "₹0" : formatCurrency(totals.cashDifference)}
+          </div>
+        `;
+      }
     }
 
     // 2. Step 3 Purchases Total
@@ -3615,15 +3707,20 @@
     }
     const netProfitEl = document.querySelector("#closing-net-profit");
     if (netProfitEl) {
-      netProfitEl.textContent = formatCurrency(totals.netProfit);
-      netProfitEl.style.color = totals.netProfit >= 0 ? "#4ade80" : "#f87171";
+      if (!hasStartedEntry) {
+        netProfitEl.textContent = "₹0 (Pending Night Count)";
+        netProfitEl.style.color = "#94a3b8";
+      } else {
+        netProfitEl.textContent = formatCurrency(totals.netProfit);
+        netProfitEl.style.color = totals.netProfit >= 0 ? "#4ade80" : "#f87171";
+      }
     }
   }
 
   async function saveAndLockClosing() {
     const dateStr = S.selectedDate;
     const stockLines = getStockLinesForDate(dateStr);
-    const todayExpenses = (S.expenses || []).filter((e) => e.expense_date === dateStr);
+    const todayExpenses = (S.expenses || []).filter((e) => e && e.expense_date === dateStr);
     const existingClosing = getClosingForDate(dateStr);
 
     const totals = computeDailyTotals(
@@ -3631,7 +3728,8 @@
       existingClosing.actual_cash_collected,
       existingClosing.actual_upi_collected,
       todayExpenses,
-      existingClosing.master_wage
+      existingClosing.master_wage,
+      true
     );
 
     const closingRecord = {
@@ -3871,7 +3969,13 @@
     go: navigate,
     handleLogin,
     logout: handleLogout,
+    setDashboardDate: (d) => {
+      if (d < "2026-09-01") d = "2026-09-01";
+      S.dashboardDate = d;
+      render();
+    },
     changeClosingDate: (d) => {
+      if (d < "2026-09-01") d = "2026-09-01";
       S.selectedDate = d;
       render();
     },

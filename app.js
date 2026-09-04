@@ -395,30 +395,56 @@
     S.shopName = loadLocal("shopName", S.shopName);
     S.masterDailyWage = loadLocal("masterDailyWage", S.masterDailyWage);
 
-    // Auto-populate full client historical data (Aug 23 - Sep 4) if missing or incomplete
-    if (!S.closings || Object.keys(S.closings).length < 5 || !S.closings["2026-08-23"]) {
+    // Purge any data prior to September 1, 2026 (Client requested data strictly from Sep 1 onwards)
+    Object.keys(S.closings || {}).forEach((d) => {
+      if (d < "2026-09-01") delete S.closings[d];
+    });
+    Object.keys(S.dailyStock || {}).forEach((d) => {
+      if (d < "2026-09-01") delete S.dailyStock[d];
+    });
+    S.expenses = (S.expenses || []).filter((e) => e.expense_date >= "2026-09-01");
+
+    // Auto-populate true client historical data (Sep 1 - Sep 4) if missing or incomplete
+    if (!S.closings || !S.closings["2026-09-01"]) {
       const historical = generateClientHistoricalDataset();
       S.closings = Object.assign({}, historical.closings, S.closings || {});
       S.dailyStock = Object.assign({}, historical.dailyStock, S.dailyStock || {});
-      
+
       const existingExpIds = new Set((S.expenses || []).map((e) => e.id));
       (historical.expenses || []).forEach((e) => {
         if (!existingExpIds.has(e.id)) {
           S.expenses.push(e);
         }
       });
-
-      saveLocal("closings", S.closings);
-      saveLocal("dailyStock", S.dailyStock);
-      saveLocal("expenses", S.expenses);
     }
+
+    saveLocal("closings", S.closings);
+    saveLocal("dailyStock", S.dailyStock);
+    saveLocal("expenses", S.expenses);
 
     // 2. Sync with Supabase if configured
     if (db) {
       try {
         await fetchCloudDataFromSupabase();
+        // If closings are empty or missing Sep 1 after fetch, ensure true client dataset is present
+        if (!S.closings || !S.closings["2026-09-01"]) {
+          const historical = generateClientHistoricalDataset();
+          S.closings = Object.assign({}, historical.closings, S.closings || {});
+          S.dailyStock = Object.assign({}, historical.dailyStock, S.dailyStock || {});
+          const existingExpIds = new Set((S.expenses || []).map((e) => e.id));
+          (historical.expenses || []).forEach((e) => {
+            if (!existingExpIds.has(e.id)) {
+              S.expenses.push(e);
+            }
+          });
+          saveLocal("closings", S.closings);
+          saveLocal("dailyStock", S.dailyStock);
+          saveLocal("expenses", S.expenses);
+        }
+        // Push cleanly synchronized dataset to cloud and purge pre-Sep 1 data
+        await pushLocalDataToSupabase();
       } catch (err) {
-        console.warn("Supabase sync failed, continuing in Local Storage mode:", err);
+        console.warn("Supabase initial sync notice:", err);
       }
     }
 
@@ -2593,46 +2619,60 @@
   async function pushLocalDataToSupabase() {
     if (!db) return false;
     try {
+      // Clean previous pre-Sep 1 data in database
+      try {
+        await Promise.all([
+          db.from("daily_closings").delete().lt("closing_date", "2026-09-01"),
+          db.from("daily_stock_entries").delete().lt("entry_date", "2026-09-01"),
+          db.from("expenses").delete().lt("expense_date", "2026-09-01")
+        ]);
+      } catch (delErr) {
+        console.warn("Supabase purge pre-Sep-1 notice:", delErr);
+      }
+
       if (S.menu && S.menu.length > 0) {
         await db.from("menu_items").upsert(S.menu, { onConflict: "id" });
       }
 
-      const closingList = Object.values(S.closings || {});
+      const closingList = Object.values(S.closings || {}).filter((c) => c && c.closing_date >= "2026-09-01");
       if (closingList.length > 0) {
         await db.from("daily_closings").upsert(closingList, { onConflict: "closing_date" });
       }
 
       const allStockLines = [];
       Object.keys(S.dailyStock || {}).forEach((dateStr) => {
-        const lines = S.dailyStock[dateStr] || [];
-        lines.forEach((l) => {
-          allStockLines.push({
-            entry_date: dateStr,
-            item_id: l.item_id,
-            item_name: l.item_name,
-            unit: l.item_unit || 'kg',
-            opening_val: l.opening_val !== undefined ? +l.opening_val : (+l.opening_stock || 0),
-            opening_unit: l.opening_unit || l.item_unit || 'kg',
-            opening_stock: +l.opening_stock || 0,
-            added_val: l.added_val !== undefined ? +l.added_val : (+l.marinated_added_stock || 0),
-            added_unit: l.added_unit || l.item_unit || 'kg',
-            marinated_added_stock: +l.marinated_added_stock || 0,
-            closing_val: l.closing_val !== undefined ? +l.closing_val : (+l.closing_stock || 0),
-            closing_unit: l.closing_unit || l.item_unit || 'kg',
-            closing_stock: +l.closing_stock || 0,
-            sold_quantity: +l.sold_quantity || 0,
-            unit_price: +l.unit_price || 0,
-            total_sales: +l.total_sales || 0,
-            batches: l.batches || []
+        if (dateStr >= "2026-09-01") {
+          const lines = S.dailyStock[dateStr] || [];
+          lines.forEach((l) => {
+            allStockLines.push({
+              entry_date: dateStr,
+              item_id: l.item_id,
+              item_name: l.item_name,
+              unit: l.item_unit || 'kg',
+              opening_val: l.opening_val !== undefined ? +l.opening_val : (+l.opening_stock || 0),
+              opening_unit: l.opening_unit || l.item_unit || 'kg',
+              opening_stock: +l.opening_stock || 0,
+              added_val: l.added_val !== undefined ? +l.added_val : (+l.marinated_added_stock || 0),
+              added_unit: l.added_unit || l.item_unit || 'kg',
+              marinated_added_stock: +l.marinated_added_stock || 0,
+              closing_val: l.closing_val !== undefined ? +l.closing_val : (+l.closing_stock || 0),
+              closing_unit: l.closing_unit || l.item_unit || 'kg',
+              closing_stock: +l.closing_stock || 0,
+              sold_quantity: +l.sold_quantity || 0,
+              unit_price: +l.unit_price || 0,
+              total_sales: +l.total_sales || 0,
+              batches: l.batches || []
+            });
           });
-        });
+        }
       });
       if (allStockLines.length > 0) {
         await db.from("daily_stock_entries").upsert(allStockLines, { onConflict: "entry_date,item_id" });
       }
 
-      if (S.expenses && S.expenses.length > 0) {
-        await db.from("expenses").upsert(S.expenses, { onConflict: "id" });
+      const cleanExpenses = (S.expenses || []).filter((e) => e && e.expense_date >= "2026-09-01");
+      if (cleanExpenses.length > 0) {
+        await db.from("expenses").upsert(cleanExpenses, { onConflict: "id" });
       }
       return true;
     } catch (err) {
@@ -2646,9 +2686,9 @@
     try {
       const [menuRes, closingsRes, stockRes, expRes] = await Promise.all([
         db.from("menu_items").select("*").order("sort_order", { ascending: true }),
-        db.from("daily_closings").select("*").order("closing_date", { ascending: false }),
-        db.from("daily_stock_entries").select("*"),
-        db.from("expenses").select("*").order("expense_date", { ascending: false })
+        db.from("daily_closings").select("*").gte("closing_date", "2026-09-01").order("closing_date", { ascending: false }),
+        db.from("daily_stock_entries").select("*").gte("entry_date", "2026-09-01"),
+        db.from("expenses").select("*").gte("expense_date", "2026-09-01").order("expense_date", { ascending: false })
       ]);
 
       if (menuRes.data && menuRes.data.length > 0) {
@@ -2657,21 +2697,25 @@
       }
       if (closingsRes.data && closingsRes.data.length > 0) {
         const map = {};
-        closingsRes.data.forEach((c) => { map[c.closing_date] = c; });
+        closingsRes.data.forEach((c) => {
+          if (c.closing_date >= "2026-09-01") map[c.closing_date] = c;
+        });
         S.closings = map;
         saveLocal("closings", S.closings);
       }
       if (stockRes.data && stockRes.data.length > 0) {
         const stockMap = {};
         stockRes.data.forEach((st) => {
-          if (!stockMap[st.entry_date]) stockMap[st.entry_date] = [];
-          stockMap[st.entry_date].push(sanitizeStockLine(st));
+          if (st.entry_date >= "2026-09-01") {
+            if (!stockMap[st.entry_date]) stockMap[st.entry_date] = [];
+            stockMap[st.entry_date].push(sanitizeStockLine(st));
+          }
         });
         S.dailyStock = stockMap;
         saveLocal("dailyStock", S.dailyStock);
       }
       if (expRes.data && expRes.data.length > 0) {
-        S.expenses = expRes.data;
+        S.expenses = expRes.data.filter((e) => e.expense_date >= "2026-09-01");
         saveLocal("expenses", S.expenses);
       }
 
@@ -2683,286 +2727,10 @@
     }
   }
 
-  // Generator for full continuous client dataset (Aug 23, 2026 to Sep 04, 2026)
+  // Generator for true client dataset strictly starting from September 1, 2026 onwards
   function generateClientHistoricalDataset() {
     const datesConfig = [
-      // 1. Aug 23 (Sunday)
-      {
-        date: "2026-08-23",
-        raw_chicken_intake_kg: 14.0, raw_pakora_meat_kg: 11.2, wings_pieces: 24, wings_weight: 0.6,
-        full_joint_pieces: 16, full_joint_weight: 1.0, half_joint_pieces: 8, half_joint_weight: 0.5, liver_val: 0.7,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 11.2, closing: 1.5 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 1.8, closing: 0.3 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 24, closing: 2 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 16, closing: 1 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 8, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 18, closing: 2 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 6, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 10, closing: 1 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 12, closing: 2 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 8, closing: 1 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 5, closing: 1 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 8 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 2800, qty: "14.0 kg", pay: "Cash", desc: "Fresh dressed chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters (1 Tin)", pay: "Cash", desc: "Refined Sunflower Oil" },
-          { cat: "Fish & Seafood", amt: 720, qty: "3.0 kg", pay: "Cash", desc: "Cleaned boneless fish cuts" },
-          { cat: "Spices & Masala Groceries", amt: 500, qty: "Pack", pay: "Cash", desc: "Ginger-garlic, red chilli powder" },
-          { cat: "Corn Flour & Maida", amt: 320, qty: "5 kg", pay: "Cash", desc: "Corn starch & Maida bags" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Daily gas allocation" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Farm fresh eggs crate" }
-        ],
-        upiShare: 0.45
-      },
-
-      // 2. Aug 24 (Monday)
-      {
-        date: "2026-08-24",
-        raw_chicken_intake_kg: 12.0, raw_pakora_meat_kg: 9.8, wings_pieces: 20, wings_weight: 0.5,
-        full_joint_pieces: 12, full_joint_weight: 0.8, half_joint_pieces: 6, half_joint_weight: 0.4, liver_val: 0.5,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 9.8, closing: 2.0 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 1.5, closing: 0.3 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 20, closing: 0 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 12, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 6, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 15, closing: 1 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 5, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 8, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 10, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 6, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 4, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 5 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 2400, qty: "12.0 kg", pay: "Cash", desc: "Fresh dressed chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters (1 Tin)", pay: "Cash", desc: "Refined Sunflower Oil" },
-          { cat: "Fish & Seafood", amt: 600, qty: "2.5 kg", pay: "Cash", desc: "Cleaned boneless fish cuts" },
-          { cat: "Spices & Masala Groceries", amt: 450, qty: "Pack", pay: "Cash", desc: "Ginger-garlic, red chilli powder" },
-          { cat: "Corn Flour & Maida", amt: 300, qty: "5 kg", pay: "Cash", desc: "Corn starch & Maida bags" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Daily gas usage" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Farm fresh eggs crate" }
-        ],
-        upiShare: 0.44
-      },
-
-      // 3. Aug 25 (Tuesday)
-      {
-        date: "2026-08-25",
-        raw_chicken_intake_kg: 13.0, raw_pakora_meat_kg: 10.5, wings_pieces: 22, wings_weight: 0.55,
-        full_joint_pieces: 14, full_joint_weight: 0.9, half_joint_pieces: 8, half_joint_weight: 0.5, liver_val: 0.55,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 10.5, closing: 0.6 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 2.0, closing: 0.2 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 22, closing: 0 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 14, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 8, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 18, closing: 2 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 6, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 10, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 12, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 7, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 5, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 5 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 2600, qty: "13.0 kg", pay: "Cash", desc: "Fresh dressed chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Sunflower Oil" },
-          { cat: "Fish & Seafood", amt: 720, qty: "3.0 kg", pay: "Cash", desc: "Fresh fish" },
-          { cat: "Spices & Masala Groceries", amt: 520, qty: "Pack", pay: "Cash", desc: "Masala & sauces" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Eggs crate" }
-        ],
-        upiShare: 0.43
-      },
-
-      // 4. Aug 26 (Wednesday)
-      {
-        date: "2026-08-26",
-        raw_chicken_intake_kg: 12.0, raw_pakora_meat_kg: 9.8, wings_pieces: 20, wings_weight: 0.5,
-        full_joint_pieces: 12, full_joint_weight: 0.8, half_joint_pieces: 6, half_joint_weight: 0.4, liver_val: 0.5,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 9.8, closing: 1.0 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 1.5, closing: 0.2 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 20, closing: 0 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 12, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 6, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 15, closing: 3 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 5, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 8, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 10, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 6, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 4, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 5 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 2400, qty: "12.0 kg", pay: "Cash", desc: "Fresh chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Oil" },
-          { cat: "Fish & Seafood", amt: 600, qty: "2.5 kg", pay: "Cash", desc: "Fish cuts" },
-          { cat: "Spices & Masala Groceries", amt: 450, qty: "Pack", pay: "Cash", desc: "Spices" },
-          { cat: "Corn Flour & Maida", amt: 300, qty: "5 kg", pay: "Cash", desc: "Flour" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Eggs" }
-        ],
-        upiShare: 0.44
-      },
-
-      // 5. Aug 27 (Thursday)
-      {
-        date: "2026-08-27",
-        raw_chicken_intake_kg: 13.0, raw_pakora_meat_kg: 10.4, wings_pieces: 22, wings_weight: 0.55,
-        full_joint_pieces: 14, full_joint_weight: 0.9, half_joint_pieces: 8, half_joint_weight: 0.5, liver_val: 0.65,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 10.4, closing: 1.2 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 1.6, closing: 0.3 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 22, closing: 1 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 14, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 8, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 16, closing: 2 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 5, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 9, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 11, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 7, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 4, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 6 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 2600, qty: "13.0 kg", pay: "Cash", desc: "Fresh dressed chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Sunflower Oil" },
-          { cat: "Fish & Seafood", amt: 640, qty: "2.7 kg", pay: "Cash", desc: "Fresh fish" },
-          { cat: "Spices & Masala Groceries", amt: 480, qty: "Pack", pay: "Cash", desc: "Spices & masala" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas allocation" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Farm eggs crate" }
-        ],
-        upiShare: 0.42
-      },
-
-      // 6. Aug 28 (Friday)
-      {
-        date: "2026-08-28",
-        raw_chicken_intake_kg: 15.0, raw_pakora_meat_kg: 12.0, wings_pieces: 26, wings_weight: 0.65,
-        full_joint_pieces: 16, full_joint_weight: 1.1, half_joint_pieces: 10, half_joint_weight: 0.6, liver_val: 0.65,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 12.0, closing: 1.4 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 2.0, closing: 0.4 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 26, closing: 0 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 16, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 10, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 20, closing: 2 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 6, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 12, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 14, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 8, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 6, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 7 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 3000, qty: "15.0 kg", pay: "Cash", desc: "Fresh chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Cooking oil tin" },
-          { cat: "Fish & Seafood", amt: 800, qty: "3.5 kg", pay: "Cash", desc: "Fish cuts" },
-          { cat: "Spices & Masala Groceries", amt: 550, qty: "Pack", pay: "Cash", desc: "Spices, oil, garlic" },
-          { cat: "Corn Flour & Maida", amt: 350, qty: "6 kg", pay: "Cash", desc: "Flour packs" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Eggs crate" }
-        ],
-        upiShare: 0.46
-      },
-
-      // 7. Aug 29 (Saturday)
-      {
-        date: "2026-08-29",
-        raw_chicken_intake_kg: 16.0, raw_pakora_meat_kg: 12.8, wings_pieces: 28, wings_weight: 0.7,
-        full_joint_pieces: 18, full_joint_weight: 1.2, half_joint_pieces: 12, half_joint_weight: 0.7, liver_val: 0.6,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 12.8, closing: 1.0 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 2.2, closing: 0.3 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 28, closing: 0 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 18, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 12, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 22, closing: 2 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 7, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 14, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 15, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 9, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 6, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 6 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 3200, qty: "16.0 kg", pay: "Cash", desc: "Fresh chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Sunflower oil" },
-          { cat: "Fish & Seafood", amt: 880, qty: "4.0 kg", pay: "Cash", desc: "Seafood" },
-          { cat: "Spices & Masala Groceries", amt: 580, qty: "Pack", pay: "Cash", desc: "Spices & masala" },
-          { cat: "Corn Flour & Maida", amt: 350, qty: "6 kg", pay: "Cash", desc: "Corn flour" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas allocation" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Farm eggs" }
-        ],
-        upiShare: 0.48
-      },
-
-      // 8. Aug 30 (Sunday)
-      {
-        date: "2026-08-30",
-        raw_chicken_intake_kg: 17.0, raw_pakora_meat_kg: 13.6, wings_pieces: 30, wings_weight: 0.75,
-        full_joint_pieces: 20, full_joint_weight: 1.3, half_joint_pieces: 12, half_joint_weight: 0.75, liver_val: 0.6,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 13.6, closing: 1.8 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 2.4, closing: 0.4 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 30, closing: 0 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 20, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 12, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 24, closing: 3 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 8, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 15, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 16, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 10, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 7, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 8 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 3400, qty: "17.0 kg", pay: "Cash", desc: "Fresh dressed chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Sunflower oil tin" },
-          { cat: "Fish & Seafood", amt: 960, qty: "4.5 kg", pay: "Cash", desc: "Seafood" },
-          { cat: "Spices & Masala Groceries", amt: 620, qty: "Pack", pay: "Cash", desc: "Spices" },
-          { cat: "Corn Flour & Maida", amt: 380, qty: "6 kg", pay: "Cash", desc: "Flour" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Eggs" }
-        ],
-        upiShare: 0.45
-      },
-
-      // 9. Aug 31 (Monday)
-      {
-        date: "2026-08-31",
-        raw_chicken_intake_kg: 12.0, raw_pakora_meat_kg: 9.8, wings_pieces: 20, wings_weight: 0.5,
-        full_joint_pieces: 12, full_joint_weight: 0.8, half_joint_pieces: 6, half_joint_weight: 0.4, liver_val: 0.5,
-        items: [
-          { id: "item-chicken-pokodi", name: "Chicken Pakora", unit: "kg", price: 480, added: 9.8, closing: 1.1 },
-          { id: "item-chicken-liver", name: "Chicken Liver Pakora", unit: "kg", price: 400, added: 1.5, closing: 0.2 },
-          { id: "item-chicken-wings", name: "Chicken Wings", unit: "pieces", price: 20, added: 20, closing: 0 },
-          { id: "item-chicken-full-joint", name: "Chicken Full Joint (Leg Piece)", unit: "pieces", price: 100, added: 12, closing: 0 },
-          { id: "item-chicken-half-joint", name: "Chicken Half Joint", unit: "pieces", price: 50, added: 6, closing: 0 },
-          { id: "item-fish-fry", name: "Fish Fry", unit: "pieces", price: 40, added: 15, closing: 2 },
-          { id: "item-fish-head", name: "Fish Head (Talakaya)", unit: "pieces", price: 70, added: 5, closing: 1 },
-          { id: "item-chilli-chicken", name: "Chilli Chicken", unit: "plates", price: 120, added: 8, closing: 0 },
-          { id: "item-chicken-manchuria", name: "Chicken Manchuria", unit: "plates", price: 80, added: 10, closing: 1 },
-          { id: "item-veg-manchuria-plate", name: "Veg Manchuria (Plate)", unit: "plates", price: 60, added: 6, closing: 0 },
-          { id: "item-veg-manchuria-fry", name: "Veg Manchuria (Fry)", unit: "plates", price: 70, added: 4, closing: 0 },
-          { id: "item-eggs-stock", name: "Eggs (All Egg Items / Omelettes / Boiled)", unit: "eggs", price: 20, added: 30, closing: 5 }
-        ],
-        expenses: [
-          { cat: "Raw Chicken Meat", amt: 2400, qty: "12.0 kg", pay: "Cash", desc: "Fresh chicken" },
-          { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Oil" },
-          { cat: "Fish & Seafood", amt: 600, qty: "2.5 kg", pay: "Cash", desc: "Fish cuts" },
-          { cat: "Spices & Masala Groceries", amt: 450, qty: "Pack", pay: "Cash", desc: "Spices" },
-          { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas" },
-          { cat: "Eggs Crate", amt: 180, qty: "30 Eggs", pay: "UPI", desc: "Eggs" }
-        ],
-        upiShare: 0.43
-      },
-
-      // 10. Sep 01 (Tuesday)
+      // 1. Sep 01 (Tuesday - Start of true client tracking)
       {
         date: "2026-09-01",
         raw_chicken_intake_kg: 13.0, raw_pakora_meat_kg: 10.5, wings_pieces: 22, wings_weight: 0.55,
@@ -2984,7 +2752,7 @@
         expenses: [
           { cat: "Raw Chicken Meat", amt: 2600, qty: "13.0 kg", pay: "Cash", desc: "Fresh chicken" },
           { cat: "Cooking Oil", amt: 1800, qty: "15 Liters", pay: "Cash", desc: "Sunflower oil" },
-          { cat: "Fish & Seafood", amt: 640, qty: "2.8 kg", pay: "Cash", desc: "Fish" },
+          { cat: "Fish & Seafood", amt: 640, qty: "2.8 kg", pay: "Cash", desc: "Fish cuts" },
           { cat: "Spices & Masala Groceries", amt: 480, qty: "Pack", pay: "Cash", desc: "Masala" },
           { cat: "Corn Flour & Maida", amt: 300, qty: "5 kg", pay: "Cash", desc: "Flour" },
           { cat: "Commercial Gas Cylinder", amt: 250, qty: "Allocated", pay: "Cash", desc: "Gas" },
@@ -2993,7 +2761,7 @@
         upiShare: 0.44
       },
 
-      // 11. Sep 02 (Wednesday)
+      // 2. Sep 02 (Wednesday)
       {
         date: "2026-09-02",
         raw_chicken_intake_kg: 13.5, raw_pakora_meat_kg: 10.8, wings_pieces: 22, wings_weight: 0.55,
@@ -3023,7 +2791,7 @@
         upiShare: 0.45
       },
 
-      // 12. Sep 03 (Thursday)
+      // 3. Sep 03 (Thursday)
       {
         date: "2026-09-03",
         raw_chicken_intake_kg: 14.0, raw_pakora_meat_kg: 11.2, wings_pieces: 24, wings_weight: 0.6,
@@ -3054,7 +2822,7 @@
         upiShare: 0.44
       },
 
-      // 13. Sep 04 (Friday - Today Active)
+      // 4. Sep 04 (Friday - Today Active)
       {
         date: "2026-09-04",
         raw_chicken_intake_kg: 14.0, raw_pakora_meat_kg: 11.2, wings_pieces: 24, wings_weight: 0.6,
@@ -3187,21 +2955,35 @@
     S.dailyStock = historical.dailyStock;
     S.expenses = historical.expenses;
 
+    // Purge any local pre-Sep 1 data
+    Object.keys(S.closings).forEach((d) => {
+      if (d < "2026-09-01") delete S.closings[d];
+    });
+    Object.keys(S.dailyStock).forEach((d) => {
+      if (d < "2026-09-01") delete S.dailyStock[d];
+    });
+    S.expenses = S.expenses.filter((e) => e.expense_date >= "2026-09-01");
+
     saveLocal("closings", S.closings);
     saveLocal("dailyStock", S.dailyStock);
     saveLocal("expenses", S.expenses);
 
     if (db) {
       try {
+        await Promise.all([
+          db.from("daily_closings").delete().lt("closing_date", "2026-09-01"),
+          db.from("daily_stock_entries").delete().lt("entry_date", "2026-09-01"),
+          db.from("expenses").delete().lt("expense_date", "2026-09-01")
+        ]);
         await pushLocalDataToSupabase();
       } catch (err) {
-        console.warn("Supabase push error on restore:", err);
+        console.warn("Supabase sync error on restore:", err);
       }
     }
 
     autoReconcileAllDaysCarryover();
     closeModal();
-    showToast("🎉 All client historical data (Aug 23 - Sep 4) restored successfully!");
+    showToast("🎉 Client true data from September 1 to Today restored successfully!");
     render();
   }
 

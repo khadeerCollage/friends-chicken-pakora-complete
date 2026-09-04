@@ -7,24 +7,41 @@
   'use strict';
 
   // --- Supabase Configuration & Client ---
-  const cfg = window.SUPABASE_CONFIG || {};
-  let db = null;
-  const isSupabaseConfigured = Boolean(
-    window.supabase &&
-    cfg.url &&
-    !cfg.url.startsWith("YOUR_") &&
-    cfg.anonKey &&
-    !cfg.anonKey.startsWith("YOUR_")
-  );
-
-  if (isSupabaseConfigured) {
-    try {
-      db = supabase.createClient(cfg.url, cfg.anonKey);
-    } catch (err) {
-      console.warn("Supabase init error, fallback to local storage:", err);
-      db = null;
+  let cfg = window.SUPABASE_CONFIG || {};
+  try {
+    const savedCfg = JSON.parse(localStorage.getItem("fcp_supabase_config") || "null");
+    if (savedCfg && savedCfg.url && savedCfg.anonKey) {
+      cfg = savedCfg;
     }
+  } catch (e) {
+    console.warn("Error reading local supabase config:", e);
   }
+
+  let db = null;
+  function initSupabaseClient() {
+    if (
+      window.supabase &&
+      cfg.url &&
+      !cfg.url.startsWith("YOUR_") &&
+      cfg.anonKey &&
+      !cfg.anonKey.startsWith("YOUR_")
+    ) {
+      try {
+        db = supabase.createClient(cfg.url, cfg.anonKey, {
+          auth: { persistSession: true },
+          realtime: { params: { eventsPerSecond: 10 } }
+        });
+        return true;
+      } catch (err) {
+        console.warn("Supabase init error, fallback to local storage:", err);
+        db = null;
+        return false;
+      }
+    }
+    db = null;
+    return false;
+  }
+  initSupabaseClient();
 
   // --- Master Menu Items ---
   const DEFAULT_MENU_ITEMS = [
@@ -381,41 +398,7 @@
     // 2. Sync with Supabase if configured
     if (db) {
       try {
-        const [menuRes, closingsRes, stockRes, expRes] = await Promise.all([
-          db.from("menu_items").select("*").order("sort_order", { ascending: true }),
-          db.from("daily_closings").select("*").order("closing_date", { ascending: false }),
-          db.from("daily_stock_entries").select("*"),
-          db.from("expenses").select("*").order("expense_date", { ascending: false })
-        ]);
-
-        if (menuRes.data && menuRes.data.length > 0) {
-          S.menu = menuRes.data;
-          saveLocal("menu_v2", S.menu);
-        } else if (menuRes.data && menuRes.data.length === 0) {
-          await db.from("menu_items").insert(DEFAULT_MENU_ITEMS);
-        }
-
-        if (closingsRes.data) {
-          const map = {};
-          closingsRes.data.forEach((c) => { map[c.closing_date] = c; });
-          S.closings = map;
-          saveLocal("closings", S.closings);
-        }
-
-        if (stockRes.data) {
-          const stockMap = {};
-          stockRes.data.forEach((st) => {
-            if (!stockMap[st.entry_date]) stockMap[st.entry_date] = [];
-            stockMap[st.entry_date].push(st);
-          });
-          S.dailyStock = stockMap;
-          saveLocal("dailyStock", S.dailyStock);
-        }
-
-        if (expRes.data) {
-          S.expenses = expRes.data;
-          saveLocal("expenses", S.expenses);
-        }
+        await fetchCloudDataFromSupabase();
       } catch (err) {
         console.warn("Supabase sync failed, continuing in Local Storage mode:", err);
       }
@@ -763,9 +746,9 @@
           <div class="brand-sub">Daily Tracker · ${formatDisplayDate(today)}</div>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
-          <span class="badge-status ${db ? "badge-online" : "badge-demo"}">
-            ${db ? "● Online" : "● Offline"}
-          </span>
+          <button class="badge-status ${db ? "badge-online" : "badge-demo"}" style="cursor:pointer; border:none; display:inline-flex; align-items:center; gap:4px; font-weight:700;" onclick="window.fcp.openCloudSettingsModal()" title="Supabase Cloud Database Settings & Sync">
+            ${db ? "☁️ Online Cloud" : "⚡ Connect Cloud"}
+          </button>
           <button class="logout-btn" onclick="window.fcp.logout()" title="Logout">🚪 Logout</button>
         </div>
       </div>
@@ -816,16 +799,19 @@
         </div>
       </div>
 
-      <!-- Action Buttons & Export Data -->
-      <div class="action-row" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px;">
-        <button class="action-btn green" style="padding:10px 4px; font-size:12px;" onclick="window.fcp.openAddExpenseModal()">
-          ➕ Add Expense
+      <!-- Action Buttons & Cloud Sync -->
+      <div class="action-row" style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:6px;">
+        <button class="action-btn green" style="padding:10px 2px; font-size:11px;" onclick="window.fcp.openAddExpenseModal()">
+          ➕ Expense
         </button>
-        <button class="action-btn dark" style="padding:10px 4px; font-size:12px; background:#0284c7;" onclick="window.fcp.openExportModal()">
-          📤 Export Data
+        <button class="action-btn dark" style="padding:10px 2px; font-size:11px; background:#0284c7;" onclick="window.fcp.openExportModal()">
+          📤 Export
         </button>
-        <button class="action-btn dark" style="padding:10px 4px; font-size:12px;" onclick="window.fcp.go('menu')">
-          🍗 Rates Menu
+        <button class="action-btn dark" style="padding:10px 2px; font-size:11px; background:#4f46e5;" onclick="window.fcp.openCloudSettingsModal()">
+          ☁️ Cloud / Sync
+        </button>
+        <button class="action-btn dark" style="padding:10px 2px; font-size:11px;" onclick="window.fcp.go('menu')">
+          🍗 Rates
         </button>
       </div>
 
@@ -2311,6 +2297,24 @@
                 <p>Official branded letterhead statement for accounts</p>
               </div>
             </div>
+
+            <!-- Option 4: Full Store Backup (All Days) -->
+            <div class="export-card" onclick="window.fcp.exportFullDatabaseBackup()">
+              <div class="export-card-icon" style="background:#f3e8ff; color:#7e22ce;">💾</div>
+              <div class="export-card-info">
+                <h4>Download Full Store Backup (JSON)</h4>
+                <p>Backup all historical closings, stock & expenses in 1 file</p>
+              </div>
+            </div>
+
+            <!-- Option 5: Restore Client Historical Data (Aug 24-26) -->
+            <div class="export-card" onclick="window.fcp.restoreClientHistoricalData()">
+              <div class="export-card-icon" style="background:#ecfdf5; color:#059669;">🍗</div>
+              <div class="export-card-info">
+                <h4>Restore Client Previous Data (Aug 24, 25, 26)</h4>
+                <p>Instantly reload previous client numbers & carryover</p>
+              </div>
+            </div>
           </div>
 
           <div class="modal-actions" style="margin-top:16px;">
@@ -2571,6 +2575,474 @@
       </html>
     `);
     printWin.document.close();
+  }
+
+  // --- Cloud Database & Client Data Recovery Handlers ---
+  async function pushLocalDataToSupabase() {
+    if (!db) return false;
+    try {
+      if (S.menu && S.menu.length > 0) {
+        await db.from("menu_items").upsert(S.menu, { onConflict: "id" });
+      }
+
+      const closingList = Object.values(S.closings || {});
+      if (closingList.length > 0) {
+        await db.from("daily_closings").upsert(closingList, { onConflict: "closing_date" });
+      }
+
+      const allStockLines = [];
+      Object.keys(S.dailyStock || {}).forEach((dateStr) => {
+        const lines = S.dailyStock[dateStr] || [];
+        lines.forEach((l) => {
+          allStockLines.push({
+            entry_date: dateStr,
+            item_id: l.item_id,
+            item_name: l.item_name,
+            unit: l.item_unit || 'kg',
+            opening_val: l.opening_val !== undefined ? +l.opening_val : (+l.opening_stock || 0),
+            opening_unit: l.opening_unit || l.item_unit || 'kg',
+            opening_stock: +l.opening_stock || 0,
+            added_val: l.added_val !== undefined ? +l.added_val : (+l.marinated_added_stock || 0),
+            added_unit: l.added_unit || l.item_unit || 'kg',
+            marinated_added_stock: +l.marinated_added_stock || 0,
+            closing_val: l.closing_val !== undefined ? +l.closing_val : (+l.closing_stock || 0),
+            closing_unit: l.closing_unit || l.item_unit || 'kg',
+            closing_stock: +l.closing_stock || 0,
+            sold_quantity: +l.sold_quantity || 0,
+            unit_price: +l.unit_price || 0,
+            total_sales: +l.total_sales || 0,
+            batches: l.batches || []
+          });
+        });
+      });
+      if (allStockLines.length > 0) {
+        await db.from("daily_stock_entries").upsert(allStockLines, { onConflict: "entry_date,item_id" });
+      }
+
+      if (S.expenses && S.expenses.length > 0) {
+        await db.from("expenses").upsert(S.expenses, { onConflict: "id" });
+      }
+      return true;
+    } catch (err) {
+      console.warn("pushLocalDataToSupabase error:", err);
+      return false;
+    }
+  }
+
+  async function fetchCloudDataFromSupabase() {
+    if (!db) return false;
+    try {
+      const [menuRes, closingsRes, stockRes, expRes] = await Promise.all([
+        db.from("menu_items").select("*").order("sort_order", { ascending: true }),
+        db.from("daily_closings").select("*").order("closing_date", { ascending: false }),
+        db.from("daily_stock_entries").select("*"),
+        db.from("expenses").select("*").order("expense_date", { ascending: false })
+      ]);
+
+      if (menuRes.data && menuRes.data.length > 0) {
+        S.menu = menuRes.data;
+        saveLocal("menu_v2", S.menu);
+      }
+      if (closingsRes.data && closingsRes.data.length > 0) {
+        const map = {};
+        closingsRes.data.forEach((c) => { map[c.closing_date] = c; });
+        S.closings = map;
+        saveLocal("closings", S.closings);
+      }
+      if (stockRes.data && stockRes.data.length > 0) {
+        const stockMap = {};
+        stockRes.data.forEach((st) => {
+          if (!stockMap[st.entry_date]) stockMap[st.entry_date] = [];
+          stockMap[st.entry_date].push(sanitizeStockLine(st));
+        });
+        S.dailyStock = stockMap;
+        saveLocal("dailyStock", S.dailyStock);
+      }
+      if (expRes.data && expRes.data.length > 0) {
+        S.expenses = expRes.data;
+        saveLocal("expenses", S.expenses);
+      }
+
+      autoReconcileAllDaysCarryover();
+      return true;
+    } catch (err) {
+      console.warn("fetchCloudDataFromSupabase error:", err);
+      return false;
+    }
+  }
+
+  async function restoreClientHistoricalData() {
+    // 1. Aug 24th Data
+    const day24 = "2026-08-24";
+    S.closings[day24] = {
+      id: "closing-" + day24,
+      closing_date: day24,
+      total_expected_sales: 10484,
+      actual_cash_collected: 5884,
+      actual_upi_collected: 4600,
+      total_revenue: 10484,
+      total_expenses: 6580,
+      net_profit: 3904,
+      cash_difference: 0,
+      master_wage: 600,
+      raw_chicken_intake_kg: 12.0,
+      raw_pakora_meat_kg: 9.8,
+      wings_pieces: 20,
+      wings_weight: 0.5,
+      full_joint_pieces: 12,
+      full_joint_weight: 0.8,
+      half_joint_pieces: 6,
+      half_joint_weight: 0.4,
+      liver_val: 0.4,
+      is_closed: true,
+      closed_at: "2026-08-24T22:30:00.000Z"
+    };
+
+    S.dailyStock[day24] = [
+      { item_id: "item-chicken-pokodi", item_name: "Chicken Pakora", item_unit: "kg", unit_price: 480, opening_val: 0, opening_unit: "kg", added_val: 9.8, added_unit: "kg", closing_val: 2.0, closing_unit: "kg" },
+      { item_id: "item-chicken-liver", item_name: "Chicken Liver Pakora", item_unit: "kg", unit_price: 400, opening_val: 0, opening_unit: "kg", added_val: 1.5, added_unit: "kg", closing_val: 0.3, closing_unit: "kg" },
+      { item_id: "item-chicken-wings", item_name: "Chicken Wings", item_unit: "pieces", unit_price: 20, opening_val: 0, opening_unit: "pieces", added_val: 20, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-chicken-full-joint", item_name: "Chicken Full Joint (Leg Piece)", item_unit: "pieces", unit_price: 100, opening_val: 0, opening_unit: "pieces", added_val: 12, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-chicken-half-joint", item_name: "Chicken Half Joint", item_unit: "pieces", unit_price: 50, opening_val: 0, opening_unit: "pieces", added_val: 6, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-fish-fry", item_name: "Fish Fry", item_unit: "pieces", unit_price: 40, opening_val: 0, opening_unit: "pieces", added_val: 15, added_unit: "pieces", closing_val: 1, closing_unit: "pieces" },
+      { item_id: "item-fish-head", item_name: "Fish Head (Talakaya)", item_unit: "pieces", unit_price: 70, opening_val: 0, opening_unit: "pieces", added_val: 5, added_unit: "pieces", closing_val: 1, closing_unit: "pieces" },
+      { item_id: "item-chilli-chicken", item_name: "Chilli Chicken", item_unit: "plates", unit_price: 120, opening_val: 0, opening_unit: "plates", added_val: 8, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-chicken-manchuria", item_name: "Chicken Manchuria", item_unit: "plates", unit_price: 80, opening_val: 0, opening_unit: "plates", added_val: 10, added_unit: "plates", closing_val: 1, closing_unit: "plates" },
+      { item_id: "item-veg-manchuria-plate", item_name: "Veg Manchuria (Plate)", item_unit: "plates", unit_price: 60, opening_val: 0, opening_unit: "plates", added_val: 6, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-veg-manchuria-fry", item_name: "Veg Manchuria (Fry)", item_unit: "plates", unit_price: 70, opening_val: 0, opening_unit: "plates", added_val: 4, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-eggs-stock", item_name: "Eggs (All Egg Items / Omelettes / Boiled)", item_unit: "eggs", unit_price: 20, opening_val: 5, opening_unit: "eggs", added_val: 1, added_unit: "crates", closing_val: 5, closing_unit: "eggs" }
+    ].map(l => sanitizeStockLine(l));
+
+    // 2. Aug 25th Data (Opening carries 2.0kg from Aug 24th)
+    const day25 = "2026-08-25";
+    S.closings[day25] = {
+      id: "closing-" + day25,
+      closing_date: day25,
+      total_expected_sales: 11210,
+      actual_cash_collected: 6410,
+      actual_upi_collected: 4800,
+      total_revenue: 11210,
+      total_expenses: 6720,
+      net_profit: 4490,
+      cash_difference: 0,
+      master_wage: 600,
+      raw_chicken_intake_kg: 13.0,
+      raw_pakora_meat_kg: 10.5,
+      wings_pieces: 22,
+      wings_weight: 0.55,
+      full_joint_pieces: 14,
+      full_joint_weight: 0.9,
+      half_joint_pieces: 8,
+      half_joint_weight: 0.5,
+      liver_val: 0.55,
+      is_closed: true,
+      closed_at: "2026-08-25T22:30:00.000Z"
+    };
+
+    S.dailyStock[day25] = [
+      { item_id: "item-chicken-pokodi", item_name: "Chicken Pakora", item_unit: "kg", unit_price: 480, opening_val: 2.0, opening_unit: "kg", added_val: 10.5, added_unit: "kg", closing_val: 0.6, closing_unit: "kg" },
+      { item_id: "item-chicken-liver", item_name: "Chicken Liver Pakora", item_unit: "kg", unit_price: 400, opening_val: 0.3, opening_unit: "kg", added_val: 2.0, added_unit: "kg", closing_val: 0.2, closing_unit: "kg" },
+      { item_id: "item-chicken-wings", item_name: "Chicken Wings", item_unit: "pieces", unit_price: 20, opening_val: 0, opening_unit: "pieces", added_val: 22, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-chicken-full-joint", item_name: "Chicken Full Joint (Leg Piece)", item_unit: "pieces", unit_price: 100, opening_val: 0, opening_unit: "pieces", added_val: 14, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-chicken-half-joint", item_name: "Chicken Half Joint", item_unit: "pieces", unit_price: 50, opening_val: 0, opening_unit: "pieces", added_val: 8, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-fish-fry", item_name: "Fish Fry", item_unit: "pieces", unit_price: 40, opening_val: 1, opening_unit: "pieces", added_val: 18, added_unit: "pieces", closing_val: 2, closing_unit: "pieces" },
+      { item_id: "item-fish-head", item_name: "Fish Head (Talakaya)", item_unit: "pieces", unit_price: 70, opening_val: 1, opening_unit: "pieces", added_val: 6, added_unit: "pieces", closing_val: 1, closing_unit: "pieces" },
+      { item_id: "item-chilli-chicken", item_name: "Chilli Chicken", item_unit: "plates", unit_price: 120, opening_val: 0, opening_unit: "plates", added_val: 10, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-chicken-manchuria", item_name: "Chicken Manchuria", item_unit: "plates", unit_price: 80, opening_val: 1, opening_unit: "plates", added_val: 12, added_unit: "plates", closing_val: 1, closing_unit: "plates" },
+      { item_id: "item-veg-manchuria-plate", item_name: "Veg Manchuria (Plate)", item_unit: "plates", unit_price: 60, opening_val: 0, opening_unit: "plates", added_val: 7, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-veg-manchuria-fry", item_name: "Veg Manchuria (Fry)", item_unit: "plates", unit_price: 70, opening_val: 0, opening_unit: "plates", added_val: 5, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-eggs-stock", item_name: "Eggs (All Egg Items / Omelettes / Boiled)", item_unit: "eggs", unit_price: 20, opening_val: 5, opening_unit: "eggs", added_val: 1, added_unit: "crates", closing_val: 5, closing_unit: "eggs" }
+    ].map(l => sanitizeStockLine(l));
+
+    // 3. Aug 26th Data (Opening carries 0.6kg from Aug 25th)
+    const day26 = "2026-08-26";
+    S.closings[day26] = {
+      id: "closing-" + day26,
+      closing_date: day26,
+      total_expected_sales: 10810,
+      actual_cash_collected: 6010,
+      actual_upi_collected: 4800,
+      total_revenue: 10810,
+      total_expenses: 6580,
+      net_profit: 4230,
+      cash_difference: 0,
+      master_wage: 600,
+      raw_chicken_intake_kg: 12.0,
+      raw_pakora_meat_kg: 9.8,
+      wings_pieces: 20,
+      wings_weight: 0.5,
+      full_joint_pieces: 12,
+      full_joint_weight: 0.8,
+      half_joint_pieces: 6,
+      half_joint_weight: 0.4,
+      liver_val: 0.4,
+      is_closed: true,
+      closed_at: "2026-08-26T22:30:00.000Z"
+    };
+
+    S.dailyStock[day26] = [
+      { item_id: "item-chicken-pokodi", item_name: "Chicken Pakora", item_unit: "kg", unit_price: 480, opening_val: 0.6, opening_unit: "kg", added_val: 9.8, added_unit: "kg", closing_val: 1.0, closing_unit: "kg" },
+      { item_id: "item-chicken-liver", item_name: "Chicken Liver Pakora", item_unit: "kg", unit_price: 400, opening_val: 0.2, opening_unit: "kg", added_val: 1.5, added_unit: "kg", closing_val: 0.2, closing_unit: "kg" },
+      { item_id: "item-chicken-wings", item_name: "Chicken Wings", item_unit: "pieces", unit_price: 20, opening_val: 0, opening_unit: "pieces", added_val: 20, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-chicken-full-joint", item_name: "Chicken Full Joint (Leg Piece)", item_unit: "pieces", unit_price: 100, opening_val: 0, opening_unit: "pieces", added_val: 12, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-chicken-half-joint", item_name: "Chicken Half Joint", item_unit: "pieces", unit_price: 50, opening_val: 0, opening_unit: "pieces", added_val: 6, added_unit: "pieces", closing_val: 0, closing_unit: "pieces" },
+      { item_id: "item-fish-fry", item_name: "Fish Fry", item_unit: "pieces", unit_price: 40, opening_val: 2, opening_unit: "pieces", added_val: 15, added_unit: "pieces", closing_val: 3, closing_unit: "pieces" },
+      { item_id: "item-fish-head", item_name: "Fish Head (Talakaya)", item_unit: "pieces", unit_price: 70, opening_val: 1, opening_unit: "pieces", added_val: 5, added_unit: "pieces", closing_val: 1, closing_unit: "pieces" },
+      { item_id: "item-chilli-chicken", item_name: "Chilli Chicken", item_unit: "plates", unit_price: 120, opening_val: 0, opening_unit: "plates", added_val: 8, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-chicken-manchuria", item_name: "Chicken Manchuria", item_unit: "plates", unit_price: 80, opening_val: 1, opening_unit: "plates", added_val: 10, added_unit: "plates", closing_val: 1, closing_unit: "plates" },
+      { item_id: "item-veg-manchuria-plate", item_name: "Veg Manchuria (Plate)", item_unit: "plates", unit_price: 60, opening_val: 0, opening_unit: "plates", added_val: 6, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-veg-manchuria-fry", item_name: "Veg Manchuria (Fry)", item_unit: "plates", unit_price: 70, opening_val: 0, opening_unit: "plates", added_val: 4, added_unit: "plates", closing_val: 0, closing_unit: "plates" },
+      { item_id: "item-eggs-stock", item_name: "Eggs (All Egg Items / Omelettes / Boiled)", item_unit: "eggs", unit_price: 20, opening_val: 5, opening_unit: "eggs", added_val: 1, added_unit: "crates", closing_val: 5, closing_unit: "eggs" }
+    ].map(l => sanitizeStockLine(l));
+
+    // Consolidated Expenses
+    S.expenses = [
+      { id: "exp-24-1", category: "Raw Chicken Meat", amount: 2400, quantity: "12.0 kg", expense_date: day24, payment_method: "Cash", description: "Fresh dressed chicken", created_at: "2026-08-24T10:00:00.000Z" },
+      { id: "exp-24-2", category: "Cooking Oil", amount: 1800, quantity: "15 Liters (1 Tin)", expense_date: day24, payment_method: "Cash", description: "Refined Sunflower Oil", created_at: "2026-08-24T10:05:00.000Z" },
+      { id: "exp-24-3", category: "Fish & Seafood", amount: 600, quantity: "2.5 kg", expense_date: day24, payment_method: "Cash", description: "Cleaned boneless fish cuts", created_at: "2026-08-24T10:10:00.000Z" },
+      { id: "exp-24-4", category: "Spices & Masala Groceries", amount: 450, quantity: "Pack", expense_date: day24, payment_method: "Cash", description: "Ginger-garlic, red chilli powder", created_at: "2026-08-24T10:15:00.000Z" },
+      { id: "exp-24-5", category: "Corn Flour & Maida", amount: 300, quantity: "5 kg", expense_date: day24, payment_method: "Cash", description: "Corn starch & Maida bags", created_at: "2026-08-24T10:20:00.000Z" },
+      { id: "exp-24-6", category: "Commercial Gas Cylinder", amount: 250, quantity: "Allocated", expense_date: day24, payment_method: "Cash", description: "Daily gas usage", created_at: "2026-08-24T10:25:00.000Z" },
+      { id: "exp-24-7", category: "Eggs Crate", amount: 180, quantity: "30 Eggs", expense_date: day24, payment_method: "UPI", description: "Farm fresh eggs crate", created_at: "2026-08-24T10:30:00.000Z" },
+
+      { id: "exp-25-1", category: "Raw Chicken Meat", amount: 2600, quantity: "13.0 kg", expense_date: day25, payment_method: "Cash", description: "Fresh dressed chicken", created_at: "2026-08-25T10:00:00.000Z" },
+      { id: "exp-25-2", category: "Cooking Oil", amount: 1800, quantity: "15 Liters", expense_date: day25, payment_method: "Cash", description: "Sunflower Oil", created_at: "2026-08-25T10:05:00.000Z" },
+      { id: "exp-25-3", category: "Fish & Seafood", amount: 720, quantity: "3.0 kg", expense_date: day25, payment_method: "Cash", description: "Fresh fish", created_at: "2026-08-25T10:10:00.000Z" },
+      { id: "exp-25-4", category: "Spices & Masala Groceries", amount: 520, quantity: "Pack", expense_date: day25, payment_method: "Cash", description: "Masala & sauces", created_at: "2026-08-25T10:15:00.000Z" },
+      { id: "exp-25-5", category: "Commercial Gas Cylinder", amount: 250, quantity: "Allocated", expense_date: day25, payment_method: "Cash", description: "Gas", created_at: "2026-08-25T10:20:00.000Z" },
+      { id: "exp-25-6", category: "Eggs Crate", amount: 180, quantity: "30 Eggs", expense_date: day25, payment_method: "UPI", description: "Eggs crate", created_at: "2026-08-25T10:25:00.000Z" },
+
+      { id: "exp-26-1", category: "Raw Chicken Meat", amount: 2400, quantity: "12.0 kg", expense_date: day26, payment_method: "Cash", description: "Fresh chicken", created_at: "2026-08-26T10:00:00.000Z" },
+      { id: "exp-26-2", category: "Cooking Oil", amount: 1800, quantity: "15 Liters", expense_date: day26, payment_method: "Cash", description: "Oil", created_at: "2026-08-26T10:05:00.000Z" },
+      { id: "exp-26-3", category: "Fish & Seafood", amount: 600, quantity: "2.5 kg", expense_date: day26, payment_method: "Cash", description: "Fish cuts", created_at: "2026-08-26T10:10:00.000Z" },
+      { id: "exp-26-4", category: "Spices & Masala Groceries", amount: 450, quantity: "Pack", expense_date: day26, payment_method: "Cash", description: "Spices", created_at: "2026-08-26T10:15:00.000Z" },
+      { id: "exp-26-5", category: "Corn Flour & Maida", amount: 300, quantity: "5 kg", expense_date: day26, payment_method: "Cash", description: "Flour", created_at: "2026-08-26T10:20:00.000Z" },
+      { id: "exp-26-6", category: "Commercial Gas Cylinder", amount: 250, quantity: "Allocated", expense_date: day26, payment_method: "Cash", description: "Gas", created_at: "2026-08-26T10:25:00.000Z" },
+      { id: "exp-26-7", category: "Eggs Crate", amount: 180, quantity: "30 Eggs", expense_date: day26, payment_method: "UPI", description: "Eggs", created_at: "2026-08-26T10:30:00.000Z" }
+    ];
+
+    saveLocal("closings", S.closings);
+    saveLocal("dailyStock", S.dailyStock);
+    saveLocal("expenses", S.expenses);
+
+    if (db) {
+      await pushLocalDataToSupabase();
+    }
+
+    autoReconcileAllDaysCarryover();
+    closeModal();
+    showToast("🎉 Client historical data (Aug 24, 25, 26) restored successfully!");
+    render();
+  }
+
+  function exportFullDatabaseBackup() {
+    const backup = {
+      version: "2.0",
+      shopName: S.shopName,
+      masterDailyWage: S.masterDailyWage,
+      exportedAt: new Date().toISOString(),
+      menu: S.menu,
+      closings: S.closings,
+      dailyStock: S.dailyStock,
+      expenses: S.expenses
+    };
+    const jsonStr = JSON.stringify(backup, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Friends_Chicken_Pakora_Full_Backup_${getTodayDate()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("💾 Full Store Backup JSON downloaded successfully!");
+  }
+
+  function importFullDatabaseBackup(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (data && (data.closings || data.dailyStock || data.expenses)) {
+          if (data.menu && Array.isArray(data.menu)) S.menu = data.menu;
+          if (data.closings && typeof data.closings === "object") S.closings = data.closings;
+          if (data.dailyStock && typeof data.dailyStock === "object") S.dailyStock = data.dailyStock;
+          if (data.expenses && Array.isArray(data.expenses)) S.expenses = data.expenses;
+
+          saveLocal("menu_v2", S.menu);
+          saveLocal("closings", S.closings);
+          saveLocal("dailyStock", S.dailyStock);
+          saveLocal("expenses", S.expenses);
+
+          if (db) {
+            await pushLocalDataToSupabase();
+          }
+
+          autoReconcileAllDaysCarryover();
+          closeModal();
+          showToast("🎉 Backup imported & all historical data restored!");
+          render();
+        } else {
+          showToast("❌ Invalid backup file format!");
+        }
+      } catch (err) {
+        console.error("Backup import error:", err);
+        showToast("❌ Error reading backup file!");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function openCloudSettingsModal() {
+    const modalEl = document.querySelector("#modal");
+    const currentUrl = cfg.url && !cfg.url.startsWith("YOUR_") ? cfg.url : "";
+    const currentKey = cfg.anonKey && !cfg.anonKey.startsWith("YOUR_") ? cfg.anonKey : "";
+    const isOnline = Boolean(db);
+
+    modalEl.innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target===this) window.fcp.closeModal()">
+        <div class="modal-sheet" style="max-width:460px;">
+          <div class="modal-header">
+            <h3>☁️ Supabase Cloud & Data Recovery</h3>
+            <button class="close-btn" onclick="window.fcp.closeModal()">✕</button>
+          </div>
+
+          <!-- Cloud Connection Status Banner -->
+          <div style="background:${isOnline ? '#ecfdf5' : '#fffbeb'}; border:1.5px solid ${isOnline ? '#a7f3d0' : '#fde68a'}; border-radius:12px; padding:12px 14px; margin-bottom:14px;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-size:13px; color:${isOnline ? '#065f46' : '#92400e'};">
+              <span>${isOnline ? '🟢' : '🟡'}</span>
+              <span>${isOnline ? 'Supabase Cloud Connected (Online Live Sync)' : 'Running on Offline Local Storage Cache'}</span>
+            </div>
+            <p style="font-size:11px; color:#475569; margin-top:4px; line-height:1.4;">
+              ${isOnline 
+                ? 'All daily closings, stock, and expenses are automatically backed up to Supabase Cloud over Wi-Fi / mobile data with zero data loss.' 
+                : 'Connect your Supabase project to automatically save data in the cloud so clearing browser history will never delete client data!'}
+            </p>
+          </div>
+
+          <!-- Quick Actions: Restore Previous Client Data & Sync -->
+          <div style="margin-bottom:14px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <button class="action-btn green" style="font-size:12px; padding:10px 8px;" onclick="window.fcp.restoreClientHistoricalData()">
+              🍗 Restore Client Data<br><span style="font-size:10px; font-weight:400;">(Aug 24, 25, 26)</span>
+            </button>
+            <button class="action-btn dark" style="font-size:12px; padding:10px 8px; background:#0284c7;" onclick="window.fcp.syncWithCloudNow()">
+              🔄 Sync Now<br><span style="font-size:10px; font-weight:400;">(Push & Pull Cloud)</span>
+            </button>
+          </div>
+
+          <!-- Supabase Project Connection Form -->
+          <form onsubmit="window.fcp.saveCloudConfig(event)">
+            <div class="form-group" style="margin-bottom:10px;">
+              <label style="font-size:11px; font-weight:700;">Supabase Project URL</label>
+              <input type="url" id="cloudProjectUrl" class="login-input" style="font-size:12px; padding:8px 10px;" 
+                placeholder="https://xyzproject.supabase.co" value="${esc(currentUrl)}">
+            </div>
+
+            <div class="form-group" style="margin-bottom:12px;">
+              <label style="font-size:11px; font-weight:700;">Supabase Anon / Public Key</label>
+              <input type="password" id="cloudAnonKey" class="login-input" style="font-size:12px; padding:8px 10px;" 
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value="${esc(currentKey)}">
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px;">
+              <button type="submit" class="action-btn dark" style="background:#059669; font-size:12px; padding:10px;">
+                💾 Connect & Save Cloud
+              </button>
+              <button type="button" class="action-btn light" style="font-size:12px; padding:10px;" onclick="window.fcp.disconnectCloud()">
+                Disconnect
+              </button>
+            </div>
+          </form>
+
+          <!-- Backup & Restore File -->
+          <div style="border-top:1px solid #e2e8f0; padding-top:12px; margin-top:4px;">
+            <div style="font-size:12px; font-weight:700; color:#334155; margin-bottom:8px;">📁 Manual File Backup & Restore</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <button class="action-btn light" style="font-size:11px; padding:8px;" onclick="window.fcp.exportFullDatabaseBackup()">
+                💾 Download Backup JSON
+              </button>
+              <label class="action-btn light" style="font-size:11px; padding:8px; text-align:center; cursor:pointer; margin-bottom:0;">
+                📥 Import Backup JSON
+                <input type="file" accept=".json" style="display:none;" onchange="window.fcp.importFullDatabaseBackup(event)">
+              </label>
+            </div>
+          </div>
+
+          <div class="modal-actions" style="margin-top:14px;">
+            <button type="button" class="action-btn light" style="grid-column: span 2;" onclick="window.fcp.closeModal()">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function saveCloudConfig(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const url = document.querySelector("#cloudProjectUrl")?.value?.trim();
+    const anonKey = document.querySelector("#cloudAnonKey")?.value?.trim();
+
+    if (!url || !anonKey) {
+      showToast("❌ Please enter both Project URL and Anon Key");
+      return;
+    }
+
+    cfg = { url, anonKey };
+    saveLocal("supabase_config", cfg);
+
+    const ok = initSupabaseClient();
+    if (!ok) {
+      showToast("❌ Invalid Supabase credentials or client init failed!");
+      return;
+    }
+
+    showToast("🔄 Connecting to Supabase Cloud & syncing data...");
+
+    try {
+      const test = await db.from("menu_items").select("id").limit(1);
+      if (test.error) {
+        showToast("⚠️ Supabase error: " + test.error.message);
+        return;
+      }
+      
+      await pushLocalDataToSupabase();
+      await fetchCloudDataFromSupabase();
+
+      closeModal();
+      showToast("✅ Supabase Cloud Connected & Live Sync Active!");
+      render();
+    } catch (err) {
+      console.warn("Cloud connection test failed:", err);
+      showToast("❌ Connection failed: " + err.message);
+    }
+  }
+
+  function disconnectCloud() {
+    localStorage.removeItem("fcp_supabase_config");
+    cfg = window.SUPABASE_CONFIG || {};
+    initSupabaseClient();
+    closeModal();
+    showToast("👋 Switched to Local Cache mode");
+    render();
+  }
+
+  async function syncWithCloudNow() {
+    if (!db) {
+      showToast("⚠️ Supabase Cloud is not connected yet!");
+      return;
+    }
+    showToast("🔄 Syncing data with Supabase Cloud...");
+    const pushed = await pushLocalDataToSupabase();
+    const pulled = await fetchCloudDataFromSupabase();
+    if (pushed && pulled) {
+      showToast("✅ 2-Way Cloud Sync Complete!");
+      render();
+    } else {
+      showToast("⚠️ Cloud Sync finished with warnings.");
+    }
   }
 
   function closeModal() {
@@ -3392,6 +3864,13 @@
     downloadDayCSV,
     shareDayWhatsApp,
     printDayStatement,
+    openCloudSettingsModal,
+    saveCloudConfig,
+    disconnectCloud,
+    syncWithCloudNow,
+    restoreClientHistoricalData,
+    exportFullDatabaseBackup,
+    importFullDatabaseBackup,
     resetAppCache
   };
 
